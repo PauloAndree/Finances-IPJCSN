@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatórios Financeiros - {{ titulo_periodo | default('Mês Atual') }}</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+
+        .color-primary { background-color: #4f46e5; }
+        .text-primary { color: #4f46e5; }
+        .border-primary { border-color: #4f46e5; }
+
+        /* ====== Estilos de Impressão para o PDF (print-only) ====== */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            body {
+                background-color: #fff !important;
+                padding: 0 !important;
+            }
+            .container, section, div[class*="shadow"] {
+                box-shadow: none !important;
+                border-radius: 0 !important;
+                padding: 0 !important;
+            }
+            /* Garante fundo branco para gráficos ao imprimir */
+            #tipoChart, #pagamentoChart, #evolucaoChart {
+                background-color: white; 
+            }
+        }
+    </style>
+</head>
+
+<body class="p-4 md:p-8">
+
+    <div id="report-container" class="container max-w-6xl mx-auto bg-white p-6 md:p-10 rounded-xl shadow-2xl">
+
+        <header class="mb-8 flex justify-between items-center border-b pb-4">
+            <h1 class="text-3xl font-extrabold text-gray-800">Relatório Financeiro</h1>
+            <div class="flex items-center space-x-4 no-print">
+                <button
+                    id="download-pdf-button"
+                    class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg 
+                           hover:bg-indigo-700 transition duration-300 shadow-md flex items-center"
+                    title="Baixar Relatório em PDF">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                    Baixar Relatório (PDF)
+                </button>
+                <a href="{{ url_for('export_entradas_csv') }}" class="px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition duration-300 shadow-md flex items-center" title="Baixar Entradas (CSV)">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"></path>
+                    </svg>
+                    Entradas (CSV)
+                </a>
+                <a href="{{ url_for('export_saidas_csv') }}" class="px-3 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition duration-300 shadow-md flex items-center" title="Baixar Saídas (CSV)">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 13H5v-2h14v2z"></path>
+                    </svg>
+                    Saídas (CSV)
+                </a>
+                <a href="{{ url_for('dashboard') | default('#') }}"
+                    class="text-sm font-semibold text-gray-600 hover:text-indigo-600 transition duration-300">
+                    &larr; Voltar ao Painel
+                </a>
+            </div>
+        </header>
+
+        <section class="mb-8 p-4 bg-indigo-50 rounded-xl border border-indigo-200 no-print">
+            <h2 class="text-xl font-bold text-indigo-800 mb-4">Filtrar Relatório (Avançado)</h2>
+
+            <form id="filter-form" method="GET" action="{{ url_for('relatorio') }}"
+                class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+
+                <div>
+                    <label for="start_date" class="block text-sm font-medium text-indigo-700">Data Inicial</label>
+                    <input type="date" id="start_date" name="start_date"
+                        value="{{ start_date_value | default('') }}"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                </div>
+
+                <div>
+                    <label for="end_date" class="block text-sm font-medium text-indigo-700">Data Final</label>
+                    <input type="date" id="end_date" name="end_date"
+                        value="{{ end_date_value | default('') }}"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                </div>
+
+                <div>
+                    <label for="tipo" class="block text-sm font-medium text-indigo-700">Tipo</label>
+                    <select id="tipo" name="tipo"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                        <option value="" {% if not tipo_value or tipo_value == '' %}selected{% endif %}>Todos</option>
+                        <option value="ENTRADA" {% if tipo_value == 'ENTRADA' %}selected{% endif %}>Entradas</option>
+                        <option value="SAIDA" {% if tipo_value == 'SAIDA' %}selected{% endif %}>Saídas</option>
+                    </select>
+                </div>
+
+                <div class="col-span-1 sm:col-span-2 lg:col-span-1">
+                    <label for="categorias" class="block text-sm font-medium text-indigo-700">Categoria (Seleção Única)</label>
+                    <select id="categorias" name="categorias"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                        <option value="">Carregando...</option>
+                    </select>
+                </div>
+
+                <div class="lg:col-span-1 col-span-full sm:col-span-2 lg:mt-0 mt-4">
+                    <button type="submit"
+                        class="w-full justify-center px-4 py-2 border border-transparent rounded-md
+                               shadow-sm text-sm font-medium text-white bg-indigo-600
+                               hover:bg-indigo-700 focus:outline-none focus:ring-2
+                               focus:ring-offset-2 focus:ring-indigo-500">
+                        Aplicar Filtros
+                    </button>
+                </div>
+            </form>
+
+            <p class="text-sm text-indigo-700 mt-4">
+                Atualmente exibindo dados de: <strong>{{ titulo_periodo | default('Todo o Período') }}</strong>
+            </p>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+            <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-green-500">
+                <p class="text-sm font-medium text-gray-500">Entradas Totais</p>
+                <p class="text-3xl font-bold text-green-700 mt-1">
+                    R$ {{ "%.2f"|format(total_entradas | default(0)) }}
+                </p>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-red-500">
+                <p class="text-sm font-medium text-gray-500">Saídas Totais</p>
+                <p class="text-3xl font-bold text-red-700 mt-1">
+                    R$ {{ "%.2f"|format(total_saidas | default(0)) }}
+                </p>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-indigo-500">
+                <p class="text-sm font-medium text-gray-500">Saldo do Período</p>
+                <p class="text-3xl font-bold text-indigo-700 mt-1">
+                    R$ {{ "%.2f"|format(saldo | default(0)) }}
+                </p>
+            </div>
+        </section>
+
+        <section class="mb-10">
+            <h2 class="text-2xl font-bold text-gray-700 mb-6 border-b pb-2">Gráficos de Distribuição</h2>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                <div class="bg-white p-6 rounded-xl shadow-xl flex flex-col items-center">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">Distribuição de Movimentação por Tipo</h3>
+                    <div class="w-full max-w-md h-80">
+                        <canvas id="tipoChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-xl flex flex-col items-center">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">Total por Forma de Pagamento</h3>
+                    <div class="w-full max-w-md h-80">
+                        <canvas id="pagamentoChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="mb-10">
+            <h2 class="text-2xl font-bold text-gray-700 mb-6 border-b pb-2">Evolução Mensal (Tendência)</h2>
+            <div class="bg-white p-6 rounded-xl shadow-xl">
+                <div class="w-full h-96">
+                    <canvas id="evolucaoChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2 class="text-2xl font-bold text-gray-700 mb-6 border-b pb-2">Detalhe das Movimentações</h2>
+            <div class="overflow-x-auto shadow-lg rounded-lg">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoria</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Forma Pag.</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Valor (R$)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data Pagamento</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data Vencimento</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Descrição</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for mov in movimentacoes %}
+                        <tr class="hover:bg-gray-50 transition duration-150">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ mov.data.strftime("%d/%m/%Y") }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-bold {{ 'text-green-600' if mov.tipo == 'ENTRADA' else 'text-red-600' }}">{{ mov.tipo }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ mov.categoria }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ mov.forma }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-right {{ 'text-green-600' if mov.tipo == 'ENTRADA' else 'text-red-600' }}">R$ {{ "%.2f"|format(mov.valor) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ mov.data_pagamento.strftime("%d/%m/%Y") if mov.data_pagamento else "-" }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ mov.data_vencimento.strftime("%d/%m/%Y") if mov.data_vencimento else "-" }}</td>
+                            <td class="px-6 py-4 whitespace-normal text-sm text-gray-500 max-w-xs">{{ mov.descricao }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="px-6 py-4 text-center text-gray-500 italic">
+                                Nenhuma movimentação registrada no período.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </div>
+
+    <script>
+        // Função para gerar cores vibrantes e distintas
+        function generateColors(num) {
+            const colors = [];
+            const hueStep = 360 / num;
+            for (let i = 0; i < num; i++) {
+                colors.push(`hsl(${i * hueStep}, 70%, 50%)`);
+            }
+            return colors;
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+
+            // --- 1. CARREGAMENTO DE DADOS (JINJA/PYTHON para JS) ---
+            // *Usando | default() para prevenir TypeError em caso de variáveis não definidas*
+            
+            // Variáveis de Filtro (Arrays/Listas)
+            // catEntrada: array de objetos {codigo, nome}
+            const catEntrada = JSON.parse('{{ catEntrada | tojson | safe }}');
+            const catSaida = JSON.parse('{{ catSaida | tojson | safe }}');
+            // Monta uma lista unificada de objetos {value, text} para o caso 'Todos'
+            const todasCatsUnicas = [];
+            catEntrada.forEach(c => todasCatsUnicas.push({ value: c.codigo, text: `${c.codigo} - ${c.nome}` }));
+            catSaida.forEach(s => {
+                if (typeof s === 'string') {
+                    if (!todasCatsUnicas.some(x => x.value === s)) todasCatsUnicas.push({ value: s, text: s });
+                } else if (s && s.codigo) {
+                    if (!todasCatsUnicas.some(x => x.value === s.codigo)) todasCatsUnicas.push({ value: s.codigo, text: `${s.codigo} - ${s.nome}` });
+                }
+            });
+            const categoriasSelecionadas = JSON.parse('{{ categorias_selecionadas | default([]) | tojson | safe }}');
+            
+            // Variáveis de Gráfico (Objetos/Dicionários)
+            const resumoTipo = JSON.parse('{{ resumo_tipo_chart | default({}) | tojson | safe }}');
+            const resumoPagamento = JSON.parse('{{ resumo_pagamento_chart | default({}) | tojson | safe }}');
+            const dadosTendencia = JSON.parse('{{ dados_tendencia | default({"labels": [], "receitas": [], "despesas": []}) | tojson | safe }}');
+
+
+            // --- 2. LÓGICA DE FILTRO DINÂMICO DE CATEGORIAS ---
+            const tipoSelect = document.getElementById('tipo');
+            const categoriasSelect = document.getElementById('categorias');
+
+            /**
+             * Preenche o select de categorias baseado no tipo selecionado.
+             * @param {string} tipo - Valor do campo Tipo ('ENTRADA', 'SAIDA' ou '').
+             * @param {string[]} categoriasPreselecionadas - Categorias que devem ser selecionadas após o preenchimento.
+             */
+            function updateCategoriasOptions(tipo, categoriasPreselecionadas = []) {
+                let categoriasParaExibir = [];
+                let categoriaLabel = '';
+
+                if (tipo === 'ENTRADA') {
+                    categoriasParaExibir = catEntrada.map(c => ({ value: c.codigo, text: `${c.codigo} - ${c.nome}` }));
+                    categoriaLabel = 'Todas as Entradas';
+                } else if (tipo === 'SAIDA') {
+                    categoriasParaExibir = catSaida.map(s => (typeof s === 'string' ? { value: s, text: s } : { value: s.codigo, text: `${s.codigo} - ${s.nome}` }));
+                    categoriaLabel = 'Todas as Saídas';
+                } else { // Todos ou vazio
+                    categoriasParaExibir = todasCatsUnicas;
+                    categoriaLabel = 'Todas as Categorias';
+                }
+
+                // Limpa e adiciona a opção "Todas"
+                categoriasSelect.innerHTML = '';
+                const allOption = document.createElement('option');
+                allOption.value = '';
+                allOption.textContent = categoriaLabel;
+                if (categoriasPreselecionadas.length === 0) {
+                    allOption.selected = true;
+                }
+                categoriasSelect.appendChild(allOption);
+
+                // Adiciona as categorias específicas (cada item tem {value, text})
+                categoriasParaExibir.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat.value;
+                    option.textContent = cat.text;
+
+                    if (categoriasPreselecionadas.includes(cat.value)) {
+                        option.selected = true;
+                        allOption.selected = false;
+                    }
+                    categoriasSelect.appendChild(option);
+                });
+            }
+            
+            // Inicializa as opções de categoria na carga da página com base no filtro atual
+            const tipoInicial = tipoSelect.value;
+            updateCategoriasOptions(tipoInicial, categoriasSelecionadas);
+
+            // Adiciona o listener para atualizar o select de categorias quando o campo 'Tipo' muda
+            tipoSelect.addEventListener('change', function() {
+                // Ao mudar o tipo, reseta a seleção para a opção "Todas" do novo conjunto
+                updateCategoriasOptions(this.value, []);
+            });
+
+
+            // --- 3. IMPLEMENTAÇÃO DOS GRÁFICOS (Chart.js) ---
+
+            // Gráfico 1: Tipo (Pizza)
+            if (Object.keys(resumoTipo).length > 0) {
+                const labels = Object.keys(resumoTipo);
+                const data = Object.values(resumoTipo);
+                
+                const tipoChart = new Chart(document.getElementById('tipoChart'), {
+                    type: 'pie',
+                    data: { 
+                        labels: labels, 
+                        datasets: [{ 
+                            data: data, 
+                            backgroundColor: generateColors(labels.length), 
+                            hoverOffset: 4 
+                        }] 
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'top' }, title: { display: false } }
+                    }
+                });
+                window.tipoChart = tipoChart; // Guarda para referência, se necessário
+            } else {
+                document.getElementById('tipoChart').parentNode.innerHTML =
+                    '<p class="text-center text-gray-500 mt-8">Sem dados de movimentação por tipo para este período.</p>';
+            }
+
+            // Gráfico 2: Forma de Pagamento (Barras)
+            if (Object.keys(resumoPagamento).length > 0) {
+                const labelsPagamento = Object.keys(resumoPagamento);
+                const dataPagamento = Object.values(resumoPagamento);
+                const barColors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#6366F1'];
+
+                const pagamentoChart = new Chart(document.getElementById('pagamentoChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: labelsPagamento,
+                        datasets: [{
+                            label: 'Valor Total (R$)',
+                            data: dataPagamento,
+                            backgroundColor: barColors.slice(0, labelsPagamento.length),
+                            borderColor: barColors.slice(0, labelsPagamento.length).map(c => c.replace('700', '800')),
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, title: { display: true, text: 'Valor (R$)' } }
+                        },
+                        plugins: { legend: { display: false } }
+                    }
+                });
+                window.pagamentoChart = pagamentoChart; // Guarda para referência, se necessário
+            } else {
+                document.getElementById('pagamentoChart').parentNode.innerHTML =
+                    '<p class="text-center text-gray-500 mt-8">Sem dados de pagamento para este período.</p>';
+            }
+
+            // Gráfico 3: Evolução Mensal (Linha)
+            if (dadosTendencia && dadosTendencia.labels && dadosTendencia.labels.length > 0) {
+                new Chart(document.getElementById('evolucaoChart'), {
+                    type: 'line',
+                    data: {
+                        labels: dadosTendencia.labels,
+                        datasets: [
+                            {
+                                label: 'Receitas',
+                                data: dadosTendencia.receitas,
+                                borderColor: '#10B981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                tension: 0.3,
+                                fill: true
+                            },
+                            {
+                                label: 'Despesas',
+                                data: dadosTendencia.despesas,
+                                borderColor: '#EF4444',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                tension: 0.3,
+                                fill: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: false, title: { display: true, text: 'Valor (R$)' } }
+                        },
+                        plugins: { legend: { position: 'top' } }
+                    }
+                });
+            } else {
+                document.getElementById('evolucaoChart').parentNode.innerHTML =
+                    '<p class="text-center text-gray-500 mt-8">Sem dados históricos para a evolução mensal no período selecionado.</p>';
+            }
+
+            // --- 4. EXPORTAR PDF (html2pdf) ---
+            document.getElementById('download-pdf-button').addEventListener('click', function () {
+                const element = document.getElementById('report-container');
+                const filename = `Relatorio_Financeiro_${'{{ titulo_periodo | replace(" ", "_") | default("Periodo_Atual") }}'}.pdf`;
+
+                const options = {
+                    margin: 10,
+                    filename: filename,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { scale: 2, logging: false, allowTaint: true, useCORS: true },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+
+                // Esconde os elementos no-print
+                const nonPrintElements = document.querySelectorAll('.no-print');
+                nonPrintElements.forEach(el => el.style.display = 'none');
+
+                // Gera e salva o PDF, depois reexibe os elementos
+                html2pdf().set(options).from(element).save().then(() => {
+                    nonPrintElements.forEach(el => el.style.display = '');
+                });
+            });
+        });
+    </script>
+</body>
+</html>
