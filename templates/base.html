@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Sistema Financeiro{% endblock %} - IPJCSN</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 800: '#3730a3' }
+                    },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { appearance: textfield; -moz-appearance: textfield; }
+    </style>
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="min-h-screen">
+
+    {% if usuario_atual %}
+    <nav class="bg-white shadow-sm border-b sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <a href="{{ url_for('dashboard') }}" class="flex items-center gap-2 font-bold text-brand-700 shrink-0">
+                    <img src="{{ url_for('static', filename='igreja.png') }}" alt="Logo" class="h-8 w-8 object-contain">
+                    <span class="hidden sm:inline">IPJCSN Financeiro</span>
+                </a>
+
+                <div class="hidden md:flex items-center gap-1">
+                    <a href="{{ url_for('dashboard') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Dashboard</a>
+                    {% if cargo_atual != 'consulta' %}
+                    <a href="{{ url_for('entradas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Entradas</a>
+                    <a href="{{ url_for('saidas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Saídas</a>
+                    <a href="{{ url_for('relatorio') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Relatório</a>
+                    <a href="{{ url_for('contas_a_pagar') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Contas a Pagar</a>
+                    {% if pode_editar %}
+                    <a href="{{ url_for('contas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Contas Bancárias</a>
+                    <a href="{{ url_for('membros') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Membros</a>
+                    <a href="{{ url_for('orcamentos') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Orçamento</a>
+                    {% endif %}
+                    {% endif %}
+                    {% if cargo_atual == 'administrador' %}
+                    <a href="{{ url_for('historico') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Histórico</a>
+                    <a href="{{ url_for('usuarios') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Usuários</a>
+                    {% endif %}
+                    <a href="{{ url_for('logout') }}" class="ml-2 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition">Sair</a>
+                </div>
+
+                <button id="mobile-menu-button" class="md:hidden p-2 text-gray-600 hover:text-brand-700" aria-label="Abrir menu">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div id="mobile-menu" class="hidden md:hidden border-t bg-white">
+            <div class="px-4 py-3 space-y-1">
+                <a href="{{ url_for('dashboard') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Dashboard</a>
+                {% if cargo_atual != 'consulta' %}
+                <a href="{{ url_for('entradas') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Entradas</a>
+                <a href="{{ url_for('saidas') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Saídas</a>
+                <a href="{{ url_for('relatorio') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Relatório</a>
+                <a href="{{ url_for('contas_a_pagar') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Contas a Pagar</a>
+                {% if pode_editar %}
+                <a href="{{ url_for('contas') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Contas Bancárias</a>
+                <a href="{{ url_for('membros') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Membros</a>
+                <a href="{{ url_for('orcamentos') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Orçamento</a>
+                {% endif %}
+                {% endif %}
+                {% if cargo_atual == 'administrador' %}
+                <a href="{{ url_for('historico') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Histórico</a>
+                <a href="{{ url_for('usuarios') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Usuários</a>
+                {% endif %}
+                <a href="{{ url_for('logout') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50">Sair</a>
+            </div>
+        </div>
+    </nav>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const btn = document.getElementById('mobile-menu-button');
+            const menu = document.getElementById('mobile-menu');
+            if (btn && menu) {
+                btn.addEventListener('click', () => menu.classList.toggle('hidden'));
+            }
+        });
+    </script>
+    {% endif %}
+
+    {% with mensagens = get_flashed_messages(with_categories=true) %}
+        {% if mensagens %}
+        <div class="max-w-6xl mx-auto px-4 pt-4 space-y-2">
+            {% for categoria, msg in mensagens %}
+            <div class="p-3 rounded-lg text-sm font-medium border
+                {% if categoria == 'erro' %}bg-red-50 text-red-700 border-red-200
+                {% elif categoria == 'sucesso' %}bg-green-50 text-green-700 border-green-200
+                {% elif categoria == 'aviso' %}bg-amber-50 text-amber-700 border-amber-200
+                {% else %}bg-gray-50 text-gray-700 border-gray-200{% endif %}">
+                {{ msg }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

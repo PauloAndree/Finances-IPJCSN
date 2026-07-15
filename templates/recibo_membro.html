@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Recibo - {{ membro.nome }}{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<style>
+    @media print {
+        .no-print { display: none !important; }
+        body { background-color: #fff !important; padding: 0 !important; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto p-4 md:p-8">
+
+    <header class="mb-8 flex flex-wrap justify-between items-center gap-3 border-b pb-4 no-print">
+        <h1 class="text-2xl font-extrabold text-gray-800">Recibo de Doação</h1>
+        <div class="flex items-center gap-2">
+            <form method="GET" class="flex items-center gap-2">
+                <label for="ano" class="text-sm font-medium text-gray-700">Ano:</label>
+                <select id="ano" name="ano" onchange="this.form.submit()" class="p-2 border border-gray-300 rounded-lg text-sm">
+                    {% for a in range(ano + 2, ano - 5, -1) %}
+                        <option value="{{ a }}" {% if a == ano %}selected{% endif %}>{{ a }}</option>
+                    {% endfor %}
+                </select>
+            </form>
+            <button id="download-pdf-button" class="px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition shadow-md">
+                Baixar PDF
+            </button>
+            <a href="{{ url_for('membros') }}" class="text-sm font-semibold text-gray-600 hover:text-brand-600">&larr; Voltar</a>
+        </div>
+    </header>
+
+    <div id="recibo-container" class="bg-white p-8 rounded-xl shadow-xl border">
+        <div class="text-center mb-8 border-b pb-6">
+            <p class="text-sm text-gray-500 uppercase tracking-wide">Nome da Igreja</p>
+            <h2 class="text-xl font-bold text-gray-800 mt-1">Recibo de Doação — {{ ano }}</h2>
+        </div>
+
+        <div class="mb-6">
+            <p class="text-sm text-gray-500">Nome do Dizimista/Membro</p>
+            <p class="font-semibold text-gray-800">{{ membro.nome }}</p>
+            {% if membro.cpf %}<p class="text-sm text-gray-500 mt-1">CPF: {{ membro.cpf }}</p>{% endif %}
+        </div>
+
+        <table class="w-full text-sm mb-6">
+            <thead>
+                <tr class="border-b">
+                    <th class="text-left py-2 text-gray-500 font-medium">Data</th>
+                    <th class="text-left py-2 text-gray-500 font-medium">Categoria</th>
+                    <th class="text-right py-2 text-gray-500 font-medium">Valor</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in entradas %}
+                <tr class="border-b border-gray-100">
+                    <td class="py-2 text-gray-600">{{ e.data.strftime("%d/%m/%Y") }}</td>
+                    <td class="py-2 text-gray-600">{{ e.categoria_nome }}</td>
+                    <td class="py-2 text-right font-medium text-gray-800">R$ {{ "%.2f"|format(e.valor) }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" class="py-6 text-center text-gray-500 italic">Nenhuma doação registrada em {{ ano }}.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="flex justify-end border-t pt-4">
+            <div class="text-right">
+                <p class="text-sm text-gray-500">Total Doado em {{ ano }}</p>
+                <p class="text-2xl font-bold text-green-700">R$ {{ "%.2f"|format(total_ano) }}</p>
+            </div>
+        </div>
+
+        <p class="text-xs text-gray-400 mt-10 text-center">
+            Este recibo é uma declaração interna de doações registradas no sistema financeiro da igreja.
+        </p>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    document.getElementById('download-pdf-button').addEventListener('click', function () {
+        const element = document.getElementById('recibo-container');
+        const options = {
+            margin: 10,
+            filename: `Recibo_{{ membro.nome | replace(" ", "_") }}_{{ ano }}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, logging: false, allowTaint: true, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        html2pdf().set(options).from(element).save();
+    });
+</script>
+{% endblock %}

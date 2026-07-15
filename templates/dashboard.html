@@ -1,410 +1,390 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Financeiro</title>
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
 
-    <!-- Carrega o framework Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f7f9fb;
-        }
-
-        /* ========================================
-        ESTILOS DO CHATBOT INTEGRADO
-        ========================================
-        */
-
-        /* 1. Animação de Pulso para o Botão Flutuante (FAB) */
-        @keyframes pulse-chat {
-            0% {
-                box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.7); /* Cor do indigo-600 */
-            }
-            70% {
-                box-shadow: 0 0 0 15px rgba(79, 70, 229, 0);
-            }
-            100% {
-                box-shadow: 0 0 0 0 rgba(79, 70, 229, 0);
-            }
-        }
-        
-        /* Aplicação da animação e z-index alto */
-        #chat-toggle-button {
-            animation: pulse-chat 2s infinite; 
-            z-index: 50; /* Z-index ligeiramente mais baixo que a janela do chat */
-        }
-
-        /* 2. Estilo da Janela Flutuante (Pop-up) */
+{% block extra_head %}
+{% if not modo_consulta %}
+<style>
+    /* ========================================
+    ESTILOS DO CHATBOT INTEGRADO
+    ======================================== */
+    @keyframes pulse-chat {
+        0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.7); }
+        70% { box-shadow: 0 0 0 15px rgba(79, 70, 229, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+    }
+    #chat-toggle-button {
+        animation: pulse-chat 2s infinite;
+        z-index: 50;
+    }
+    #floating-chat-window {
+        position: fixed;
+        bottom: 100px;
+        right: 20px;
+        width: 100%;
+        max-width: 380px;
+        height: 80dvh;
+        max-height: 600px;
+        z-index: 100;
+        transform: translateY(20px);
+        opacity: 0;
+        transition: all 0.3s ease-in-out;
+        pointer-events: none;
+    }
+    #floating-chat-window.active {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+    }
+    /* Em telas estreitas, o chat ocupa a tela inteira em vez de flutuar num canto */
+    @media (max-width: 480px) {
         #floating-chat-window {
-            /* Posição fixa no canto inferior direito */
-            position: fixed;
-            bottom: 100px; /* Distância do botão */
-            right: 20px;
+            right: 0;
+            left: 0;
+            bottom: 0;
             width: 100%;
-            max-width: 380px; 
-            height: 80vh; 
-            max-height: 600px;
-            z-index: 100; /* Garante que fique acima de tudo */
-            transform: translateY(20px); /* Começa um pouco abaixo */
-            opacity: 0;
-            transition: all 0.3s ease-in-out;
-            pointer-events: none; /* Não interage quando hidden */
+            max-width: 100%;
+            height: 100dvh;
+            max-height: 100dvh;
+            border-radius: 0;
         }
-        /* Estado ATIVO (Aberto) */
-        #floating-chat-window.active {
-            opacity: 1;
-            transform: translateY(0); /* Sobe suavemente */
-            pointer-events: auto; /* Permite interação quando ativo */
-        }
-        
-        /* 3. Estilos de Mensagem (Do Chatbot) */
-        .chat-container {
-            max-height: 55vh; 
-        }
-        /* Estilização da barra de rolagem */
-        .chat-container::-webkit-scrollbar {
-            width: 8px;
-        }
-        .chat-container::-webkit-scrollbar-thumb {
-            background-color: #93c5fd; /* light-blue-300 */
-            border-radius: 10px;
-        }
-        .chat-container::-webkit-scrollbar-track {
-            background-color: #f3f4f6; /* gray-100 */
-        }
-        /* Estilo para formatar código ou texto pré-formatado na resposta do bot */
-        .bot-message pre {
-            background-color: #e0f2fe; /* light-blue-100 */
-            padding: 8px;
-            border-radius: 6px;
-            margin-top: 10px;
-            white-space: pre-wrap;
-        }
-    </style>
-</head>
+    }
+    .chat-container { max-height: 55vh; }
+    .chat-container::-webkit-scrollbar { width: 8px; }
+    .chat-container::-webkit-scrollbar-thumb { background-color: #93c5fd; border-radius: 10px; }
+    .chat-container::-webkit-scrollbar-track { background-color: #f3f4f6; }
+    .bot-message pre {
+        background-color: #e0f2fe;
+        padding: 8px;
+        border-radius: 6px;
+        margin-top: 10px;
+        white-space: pre-wrap;
+    }
+</style>
+{% endif %}
+{% endblock %}
 
-<body class="p-4 md:p-8">
+{% block content %}
+<div class="max-w-6xl mx-auto p-4 md:p-8">
 
-    <div class="container max-w-6xl mx-auto bg-white p-6 md:p-10 rounded-xl shadow-2xl">
+    <header class="mb-8">
+        <h1 class="text-3xl font-extrabold text-gray-800">Dashboard Financeiro</h1>
+        <p class="text-gray-600 mt-1">Bem-vindo(a), <span class="font-semibold">{{ usuario_atual | default('Usuário') }}</span>!</p>
+    </header>
 
-        <!-- CABEÇALHO DO DASHBOARD -->
-        <header class="mb-8 flex justify-between items-center border-b pb-4">
-            <h1 class="text-3xl font-extrabold text-gray-800">Dashboard Financeiro</h1>
-
-            <div class="flex items-center space-x-4">
-                <span class="text-gray-600 hidden sm:inline">
-                    Bem-vindo(a), 
-                    <span class="font-semibold">{{ usuario | default('Usuário') }}</span>!
-                </span>
-
-                <!-- Link de Sair (Jinja) -->
-                <a href="{{ url_for('logout') | default('#') }}"
-                    class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg 
-                            hover:bg-red-700 transition duration-300 shadow-md">
-                    Sair
-                </a>
-            </div>
-        </header>
-
-        <!-- CARDS DE RESUMO FINANCEIRO (MÊS) -->
-        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-            <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-green-500">
-                <p class="text-sm font-medium text-gray-500">Entradas (Mês)</p>
-                <p class="text-3xl font-bold text-green-700 mt-1">
-                    R$ {{ "%.2f"|format(total_entradas) | default("0.00") }}
-                </p>
-            </div>
-
-            <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-red-500">
-                <p class="text-sm font-medium text-gray-500">Saídas (Mês)</p>
-                <p class="text-3xl font-bold text-red-700 mt-1">
-                    R$ {{ "%.2f"|format(total_saidas) | default("0.00") }}
-                </p>
-            </div>
-
-            <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-indigo-500">
-                <p class="text-sm font-medium text-gray-500">Saldo Atual</p>
-                <p class="text-3xl font-bold text-indigo-700 mt-1">
-                    R$ {{ "%.2f"|format(saldo) | default("0.00") }}
-                </p>
-            </div>
-        </section>
-
-        <!-- SEÇÃO DE AÇÕES RÁPIDAS -->
-        <section class="mb-10 p-6 bg-gray-50 rounded-xl shadow-inner">
-            <h2 class="text-xl font-bold text-gray-700 mb-4">Ações Rápidas e Relatórios</h2>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-
-                <!-- Botão Nova Entrada -->
-                <a href="{{ url_for('entradas') | default('#') }}"
-                    class="flex items-center justify-center p-4 bg-green-500 text-white font-semibold 
-                            rounded-lg shadow-md hover:bg-green-600 transition duration-300">
-                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M12 9v3m0 0v3m0-3h3m-3 0H9
-                                    m12 0a9 9 0 11-18 0 9 9 0 0118 0z">
-                        </path>
-                    </svg>
-                    Registrar Nova Entrada
-                </a>
-
-                <!-- Botão Nova Saída -->
-                <a href="{{ url_for('saidas') | default('#') }}"
-                    class="flex items-center justify-center p-4 bg-red-500 text-white font-semibold 
-                            rounded-lg shadow-md hover:bg-red-600 transition duration-300">
-                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M15 12H9
-                                    m12 0a9 9 0 11-18 0 9 9 0 0118 0z">
-                        </path>
-                    </svg>
-                    Registrar Nova Saída
-                </a>
-
-                <!-- Botão Relatórios -->
-                <a href="{{ url_for('relatorio') | default('#') }}"
-                    class="flex items-center justify-center p-4 bg-indigo-500 text-white font-semibold 
-                            rounded-lg shadow-md hover:bg-indigo-600 transition duration-300">
-                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M9 19v-6a2 2 0 00-2-2H5
-                                    a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9
-                                    a2 2 0 012-2h2a2 2 0 012 2v10m-6 0h6">
-                        </path>
-                    </svg>
-                    Consultar Relatórios Detalhados
-                </a>
-            </div>
-        </section>
-
-        <!-- SEÇÃO RESUMO DO DIA -->
-        <section class="p-6 bg-white rounded-xl shadow-xl">
-            <h2 class="text-xl font-bold text-gray-700 mb-4 border-b pb-2">
-                Resumo do Dia ({{ hoje.strftime('%d/%m/%Y') }})
-            </h2>
-
-            <p class="text-2xl font-bold text-gray-800">
-                Total de Entradas Hoje:
-                <span class="text-green-600">
-                    R$ {{ "%.2f"|format(total_dia) | default("0.00") }}
-                </span>
+    <!-- CARDS DE RESUMO FINANCEIRO (MÊS) -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-green-500">
+            <p class="text-sm font-medium text-gray-500">Entradas (Mês)</p>
+            <p class="text-3xl font-bold text-green-700 mt-1">
+                R$ {{ "%.2f"|format(total_entradas) | default("0.00") }}
             </p>
-
-            <p class="text-sm text-gray-500 mt-2">
-                Veja os relatórios para detalhes completos do mês.
-            </p>
-        </section>
-
-    </div> 
-    
-    <!-- BOTÃO FLUTUANTE (FAB) PARA ABRIR O CHAT -->
-    <button
-        id="chat-toggle-button"
-        class="fixed bottom-6 right-6 bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition duration-300 z-50 transform hover:scale-105"
-        aria-label="Abrir ou fechar chat"
-    >
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 4v-4z" />
-        </svg>
-    </button>
-
-    <!-- JANELA FLUTUANTE DO CHATBOT -->
-    <div id="floating-chat-window" class="bg-white shadow-2xl rounded-xl flex flex-col">
-        
-        <!-- CABEÇALHO DO CHAT (CLICÁVEL PARA FECHAR) -->
-        <header id="chat-header" class="p-4 border-b bg-indigo-50 rounded-t-xl cursor-pointer hover:bg-indigo-100 transition">
-            <h1 class="text-xl font-bold text-indigo-800 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 4v-4z" />
-                </svg>
-                Assistente Financeiro
-            </h1>
-            <p class="text-xs text-gray-600">Clique para fechar. Pergunte sobre o mês ou uma data específica.</p>
-        </header>
-
-        <!-- CORPO DAS MENSAGENS -->
-        <div id="chat-container" class="chat-container flex-grow overflow-y-auto p-4 space-y-4">
-            <!-- Mensagem de boas-vindas do Bot -->
-            <div class="flex justify-start">
-                <div class="bg-indigo-100 p-3 rounded-xl max-w-xs shadow bot-message">
-                    <p class="text-sm font-semibold text-indigo-800">
-                        Olá! Eu sou seu assistente de IA. Use o formato **DD/MM/YYYY** para consultas por dia.
-                    </p>
-                </div>
-            </div>
         </div>
 
-        <!-- FOOTER E INPUT DO CHAT -->
-        <div class="p-4 border-t bg-gray-50 rounded-b-xl">
-            <form id="chat-form" class="flex space-x-3">
-                <input
-                    type="text"
-                    id="user-input"
-                    placeholder="Digite sua pergunta..."
-                    autocomplete="off"
-                    required
-                    class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-                >
-                <button
-                    type="submit"
-                    id="send-button"
-                    class="bg-indigo-600 text-white p-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 flex items-center justify-center disabled:opacity-50"
-                >
-                    <!-- Ícone de Envio (seta) -->
-                    <svg id="send-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.5l1-12a1 1 0 00-1-1zm3.8 8.047l-3.5 1.75a1 1 0 00-.5.866v2.5a1 1 0 001.5.866l5-2.5a1 1 0 00.5-1.732l-3.5-1.75z" />
-                    </svg>
-                    <!-- Spinner de Carregamento (Hidden por padrão) -->
-                    <span id="loading-spinner" class="hidden w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                </button>
-            </form>
+        <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-red-500">
+            <p class="text-sm font-medium text-gray-500">Saídas (Mês)</p>
+            <p class="text-3xl font-bold text-red-700 mt-1">
+                R$ {{ "%.2f"|format(total_saidas) | default("0.00") }}
+            </p>
+        </div>
+
+        <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-brand-500">
+            <p class="text-sm font-medium text-gray-500">Saldo Atual</p>
+            <p class="text-3xl font-bold text-brand-700 mt-1">
+                R$ {{ "%.2f"|format(saldo) | default("0.00") }}
+            </p>
+        </div>
+    </section>
+
+    <!-- SEÇÃO CONTAS A PAGAR -->
+    {% if contas_destaque %}
+    <section class="mb-10 p-6 bg-amber-50 rounded-xl shadow-inner border border-amber-200">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold text-amber-800">
+                Contas a Pagar
+                {% if total_atrasadas %}<span class="ml-2 text-sm font-semibold text-red-600">{{ total_atrasadas }} atrasada{{ 's' if total_atrasadas != 1 else '' }}</span>{% endif %}
+            </h2>
+            <a href="{{ url_for('contas_a_pagar') }}" class="text-sm font-semibold text-amber-700 hover:text-amber-900">Ver todas &rarr;</a>
+        </div>
+        <div class="space-y-2">
+            {% for s in contas_destaque %}
+            <div class="flex justify-between items-center bg-white rounded-lg p-3 shadow-sm">
+                <div>
+                    <p class="text-sm font-semibold text-gray-800">{{ s.categoria_nome }}</p>
+                    <p class="text-xs {{ 'text-red-600 font-semibold' if s.data_vencimento and s.data_vencimento.date() < hoje else 'text-gray-500' }}">
+                        Vencimento: {{ s.data_vencimento.strftime("%d/%m/%Y") if s.data_vencimento else "Não definido" }}
+                    </p>
+                </div>
+                <p class="font-bold text-red-600 whitespace-nowrap">R$ {{ "%.2f"|format(s.valor) }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- SEÇÃO ORÇAMENTO (PREVISTO X REALIZADO) -->
+    {% if orcamento_previsto_receita or orcamento_previsto_saida %}
+    <section class="mb-10 p-6 bg-white rounded-xl shadow-xl">
+        <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <h2 class="text-xl font-bold text-gray-700">Orçamento do Mês</h2>
+            <a href="{{ url_for('orcamentos') }}" class="text-sm font-semibold text-brand-700 hover:text-brand-900">Ver detalhes &rarr;</a>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <p class="text-sm font-medium text-gray-500">Receitas: Previsto x Realizado</p>
+                <p class="text-lg font-bold text-green-700">
+                    R$ {{ "%.2f"|format(orcamento_realizado_receita) }} <span class="text-sm font-normal text-gray-400">/ R$ {{ "%.2f"|format(orcamento_previsto_receita) }}</span>
+                </p>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Despesas: Previsto x Realizado</p>
+                <p class="text-lg font-bold text-red-700">
+                    R$ {{ "%.2f"|format(orcamento_realizado_saida) }} <span class="text-sm font-normal text-gray-400">/ R$ {{ "%.2f"|format(orcamento_previsto_saida) }}</span>
+                </p>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- SEÇÃO DE AÇÕES RÁPIDAS -->
+    {% if not modo_consulta %}
+    <section class="mb-10 p-6 bg-gray-50 rounded-xl shadow-inner">
+        <h2 class="text-xl font-bold text-gray-700 mb-4">Ações Rápidas e Relatórios</h2>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+            <a href="{{ url_for('entradas') | default('#') }}"
+                class="flex items-center justify-center p-4 bg-green-500 text-white font-semibold
+                        rounded-lg shadow-md hover:bg-green-600 transition duration-300">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 9v3m0 0v3m0-3h3m-3 0H9
+                                m12 0a9 9 0 11-18 0 9 9 0 0118 0z">
+                    </path>
+                </svg>
+                Registrar Nova Entrada
+            </a>
+
+            <a href="{{ url_for('saidas') | default('#') }}"
+                class="flex items-center justify-center p-4 bg-red-500 text-white font-semibold
+                        rounded-lg shadow-md hover:bg-red-600 transition duration-300">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 12H9
+                                m12 0a9 9 0 11-18 0 9 9 0 0118 0z">
+                    </path>
+                </svg>
+                Registrar Nova Saída
+            </a>
+
+            <a href="{{ url_for('relatorio') | default('#') }}"
+                class="flex items-center justify-center p-4 bg-brand-500 text-white font-semibold
+                        rounded-lg shadow-md hover:bg-brand-600 transition duration-300">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 19v-6a2 2 0 00-2-2H5
+                                a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9
+                                a2 2 0 012-2h2a2 2 0 012 2v10m-6 0h6">
+                    </path>
+                </svg>
+                Consultar Relatórios Detalhados
+            </a>
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- SEÇÃO RESUMO DO DIA -->
+    <section class="p-6 bg-white rounded-xl shadow-xl">
+        <h2 class="text-xl font-bold text-gray-700 mb-4 border-b pb-2">
+            Resumo do Dia ({{ hoje.strftime('%d/%m/%Y') }})
+        </h2>
+
+        <p class="text-2xl font-bold text-gray-800">
+            Total de Entradas Hoje:
+            <span class="text-green-600">
+                R$ {{ "%.2f"|format(total_dia) | default("0.00") }}
+            </span>
+        </p>
+
+        <p class="text-sm text-gray-500 mt-2">
+            Veja os relatórios para detalhes completos do mês.
+        </p>
+    </section>
+
+</div>
+
+{% if not modo_consulta %}
+<!-- BOTÃO FLUTUANTE (FAB) PARA ABRIR O CHAT -->
+<button
+    id="chat-toggle-button"
+    class="fixed bottom-6 right-6 bg-brand-600 text-white p-4 rounded-full shadow-2xl hover:bg-brand-700 transition duration-300 z-50 transform hover:scale-105"
+    aria-label="Abrir ou fechar chat"
+>
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 4v-4z" />
+    </svg>
+</button>
+
+<!-- JANELA FLUTUANTE DO CHATBOT -->
+<div id="floating-chat-window" class="bg-white shadow-2xl rounded-xl flex flex-col">
+
+    <header id="chat-header" class="p-4 border-b bg-brand-50 rounded-t-xl cursor-pointer hover:bg-brand-100 transition shrink-0">
+        <h1 class="text-xl font-bold text-brand-800 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 4v-4z" />
+            </svg>
+            Assistente Financeiro
+        </h1>
+        <p class="text-xs text-gray-600">Clique para fechar. Pergunte sobre o mês ou uma data específica.</p>
+    </header>
+
+    <div id="chat-container" class="chat-container flex-grow overflow-y-auto p-4 space-y-4">
+        <div class="flex justify-start">
+            <div class="bg-brand-100 p-3 rounded-xl max-w-xs shadow bot-message">
+                <p class="text-sm font-semibold text-brand-800">
+                    Olá! Eu sou seu assistente de IA. Use o formato **DD/MM/YYYY** para consultas por dia.
+                </p>
+            </div>
         </div>
     </div>
 
-    <script>
-        // Referências DOM
-        const chatContainer = document.getElementById("chat-container");
-        const chatForm = document.getElementById("chat-form");
-        const userInput = document.getElementById("user-input");
-        const sendButton = document.getElementById("send-button");
-        const loadingSpinner = document.getElementById("loading-spinner");
-        const sendIcon = document.getElementById("send-icon");
-        const chatToggleButton = document.getElementById("chat-toggle-button");
-        const floatingChatWindow = document.getElementById("floating-chat-window");
-        const chatHeader = document.getElementById("chat-header");
-        
-        // Variável para rastrear se a primeira consulta automática já foi feita
-        let isChatInitialized = false; 
+    <div class="p-4 border-t bg-gray-50 rounded-b-xl shrink-0">
+        <form id="chat-form" class="flex space-x-3">
+            <input
+                type="text"
+                id="user-input"
+                placeholder="Digite sua pergunta..."
+                autocomplete="off"
+                required
+                class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 transition"
+            >
+            <button
+                type="submit"
+                id="send-button"
+                class="bg-brand-600 text-white p-3 rounded-lg font-semibold hover:bg-brand-700 transition duration-150 flex items-center justify-center disabled:opacity-50"
+            >
+                <svg id="send-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.5l1-12a1 1 0 00-1-1zm3.8 8.047l-3.5 1.75a1 1 0 00-.5.866v2.5a1 1 0 001.5.866l5-2.5a1 1 0 00.5-1.732l-3.5-1.75z" />
+                </svg>
+                <span id="loading-spinner" class="hidden w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            </button>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
 
-        // Função utilitária para delay (backoff)
-        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+{% block extra_scripts %}
+{% if not modo_consulta %}
+<script>
+    const chatContainer = document.getElementById("chat-container");
+    const chatForm = document.getElementById("chat-form");
+    const userInput = document.getElementById("user-input");
+    const sendButton = document.getElementById("send-button");
+    const loadingSpinner = document.getElementById("loading-spinner");
+    const sendIcon = document.getElementById("send-icon");
+    const chatToggleButton = document.getElementById("chat-toggle-button");
+    const floatingChatWindow = document.getElementById("floating-chat-window");
+    const chatHeader = document.getElementById("chat-header");
 
-        /**
-         * Alterna a visibilidade da janela de chat e foca no input.
-         */
-        function toggleChatWindow() {
-            const isActive = floatingChatWindow.classList.toggle("active");
-            
-            if (isActive) {
-                // Se a janela acabou de ser ABERTA
-                userInput.focus();
+    let isChatInitialized = false;
 
-                if (!isChatInitialized) {
-                    isChatInitialized = true;
-                    autoQuery(); // Dispara a consulta inicial
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    function toggleChatWindow() {
+        const isActive = floatingChatWindow.classList.toggle("active");
+
+        if (isActive) {
+            userInput.focus();
+
+            if (!isChatInitialized) {
+                isChatInitialized = true;
+                autoQuery();
+            }
+        }
+    }
+
+    function autoQuery() {
+        const initialQuery = "Qual o resumo financeiro de hoje?";
+        displayMessage(initialQuery, "user");
+        sendToGemini(initialQuery);
+    }
+
+    chatToggleButton.addEventListener("click", toggleChatWindow);
+    chatHeader.addEventListener("click", toggleChatWindow);
+
+    function displayMessage(text, sender) {
+        const messageDiv = document.createElement("div");
+        messageDiv.className = "flex " + (sender === "user" ? "justify-end" : "justify-start");
+
+        const contentDiv = document.createElement("div");
+        contentDiv.className =
+            "p-3 rounded-xl max-w-xs sm:max-w-md shadow-md break-words " +
+            (sender === "user"
+                ? "bg-brand-600 text-white"
+                : "bg-gray-200 text-gray-800 font-medium bot-message");
+
+        contentDiv.innerHTML = text.replace(/\n/g, "<br>");
+
+        messageDiv.appendChild(contentDiv);
+        chatContainer.appendChild(messageDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function toggleLoading(isLoading) {
+        sendButton.disabled = isLoading;
+        loadingSpinner.classList.toggle("hidden", !isLoading);
+        sendIcon.classList.toggle("hidden", isLoading);
+        userInput.disabled = isLoading;
+    }
+
+    async function sendToGemini(userMessage) {
+        toggleLoading(true);
+
+        const maxRetries = 3;
+        let responseText = "Desculpe, não consegui gerar uma resposta após várias tentativas.";
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                const res = await fetch("/api/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ query: userMessage }),
+                });
+
+                const data = await res.json();
+
+                if (!res.ok || data.status === "error") {
+                    throw new Error(data.message || `Erro (${res.status})`);
+                }
+
+                responseText = data.text || "Desculpe, a resposta da IA está vazia ou malformada.";
+                break;
+
+            } catch (err) {
+                console.error(`Tentativa ${attempt + 1} falhou:`, err.message);
+                if (attempt === maxRetries - 1) {
+                    responseText = "Ocorreu um erro ao conectar com o serviço de IA. Tente novamente.";
+                } else {
+                    await sleep(1000);
                 }
             }
         }
-        
-        /**
-         * Simula a primeira pergunta do usuário para iniciar a conversa.
-         */
-        function autoQuery() {
-            const initialQuery = "Qual o resumo financeiro de hoje?"; 
-            
-            // 1. Exibe a pergunta como se o usuário tivesse digitado
-            displayMessage(initialQuery, "user"); 
-            
-            // 2. Envia a pergunta para o Gemini
-            sendToGemini(initialQuery);
-        }
-        
-        // Listeners para abrir/fechar o chat
-        chatToggleButton.addEventListener("click", toggleChatWindow);
-        chatHeader.addEventListener("click", toggleChatWindow); // Fecha ao clicar no header
 
-        /**
-         * Adiciona uma nova mensagem ao container de chat.
-         */
-        function displayMessage(text, sender) {
-            const messageDiv = document.createElement("div");
-            messageDiv.className = "flex " + (sender === "user" ? "justify-end" : "justify-start");
+        displayMessage(responseText, "bot");
+        toggleLoading(false);
+    }
 
-            const contentDiv = document.createElement("div");
-            contentDiv.className =
-                "p-3 rounded-xl max-w-xs sm:max-w-md shadow-md break-words " +
-                (sender === "user"
-                    ? "bg-indigo-600 text-white"
-                    : "bg-gray-200 text-gray-800 font-medium bot-message");
-            
-            // Substitui quebras de linha por <br> e insere o texto como HTML (para suportar o pre formatado)
-            contentDiv.innerHTML = text.replace(/\n/g, "<br>");
+    chatForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const msg = userInput.value.trim();
+        if (!msg || sendButton.disabled) return;
 
-            messageDiv.appendChild(contentDiv);
-            chatContainer.appendChild(messageDiv);
-            // Rola para o final
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-
-        /**
-         * Alterna o estado de carregamento (Spinner/Botão).
-         */
-        function toggleLoading(isLoading) {
-            sendButton.disabled = isLoading;
-            loadingSpinner.classList.toggle("hidden", !isLoading);
-            sendIcon.classList.toggle("hidden", isLoading);
-            userInput.disabled = isLoading;
-        }
-
-        /**
-         * Envia a mensagem do usuário para o backend, que monta o contexto financeiro
-         * e chama a Gemini server-side (a chave de API nunca chega ao navegador).
-         */
-        async function sendToGemini(userMessage) {
-            toggleLoading(true);
-
-            const maxRetries = 3;
-            let responseText = "Desculpe, não consegui gerar uma resposta após várias tentativas.";
-
-            for (let attempt = 0; attempt < maxRetries; attempt++) {
-                try {
-                    const res = await fetch("/api/chat", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ query: userMessage }),
-                    });
-
-                    const data = await res.json();
-
-                    if (!res.ok || data.status === "error") {
-                        throw new Error(data.message || `Erro (${res.status})`);
-                    }
-
-                    responseText = data.text || "Desculpe, a resposta da IA está vazia ou malformada.";
-                    break; // Sai do loop após o sucesso
-
-                } catch (err) {
-                    console.error(`Tentativa ${attempt + 1} falhou:`, err.message);
-                    if (attempt === maxRetries - 1) {
-                        responseText = "Ocorreu um erro ao conectar com o serviço de IA. Tente novamente.";
-                    } else {
-                        await sleep(1000);
-                    }
-                }
-            }
-
-            displayMessage(responseText, "bot");
-            toggleLoading(false);
-        }
-
-        // Event Listener para o formulário de chat
-        chatForm.addEventListener("submit", (e) => {
-            e.preventDefault();
-            const msg = userInput.value.trim();
-            if (!msg || sendButton.disabled) return;
-            
-            // Exibe a mensagem do usuário imediatamente
-            displayMessage(msg, "user");
-            userInput.value = "";
-            sendToGemini(msg);
-        });
-    </script>
-</body>
-</html>
+        displayMessage(msg, "user");
+        userInput.value = "";
+        sendToGemini(msg);
+    });
+</script>
+{% endif %}
+{% endblock %}

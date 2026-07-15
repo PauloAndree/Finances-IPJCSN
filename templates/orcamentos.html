@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Orçamento{% endblock %}
+
+{% macro linha_orcamento(linha, tipo_categoria, inverte_cor=false) %}
+<tr class="hover:bg-gray-50">
+    <td class="px-4 py-3 text-sm text-gray-700">{{ linha.codigo }} - {{ linha.nome }}</td>
+    <td class="px-4 py-3">
+        <form method="POST" action="{{ url_for('orcamentos') }}" class="flex items-center gap-2">
+            <input type="hidden" name="ano" value="{{ ano }}">
+            <input type="hidden" name="mes" value="{{ mes }}">
+            <input type="hidden" name="tipo_categoria" value="{{ tipo_categoria }}">
+            <input type="hidden" name="categoria_codigo" value="{{ linha.codigo }}">
+            <input type="number" name="valor_previsto" step="0.01" value="{{ "%.2f"|format(linha.previsto) }}" class="w-28 p-1.5 border border-gray-300 rounded text-sm">
+            <button type="submit" class="px-2 py-1.5 bg-brand-600 text-white text-xs font-medium rounded hover:bg-brand-700 transition">Salvar</button>
+        </form>
+    </td>
+    <td class="px-4 py-3 text-sm text-right font-medium text-gray-700">R$ {{ "%.2f"|format(linha.realizado) }}</td>
+    {% set favoravel = (linha.diferenca < 0) if inverte_cor else (linha.diferenca >= 0) %}
+    <td class="px-4 py-3 text-sm text-right font-semibold {{ 'text-green-600' if favoravel else 'text-red-600' }}">
+        R$ {{ "%.2f"|format(linha.diferenca) }}
+    </td>
+</tr>
+{% endmacro %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto p-4 md:p-8">
+
+    <header class="mb-8 flex flex-wrap justify-between items-center gap-3">
+        <h1 class="text-3xl font-extrabold text-brand-700">Orçamento: Previsto x Realizado</h1>
+        <form method="GET" class="flex items-center gap-2">
+            <select name="mes" onchange="this.form.submit()" class="p-2 border border-gray-300 rounded-lg text-sm">
+                {% for m in range(1, 13) %}
+                    <option value="{{ m }}" {% if m == mes %}selected{% endif %}>{{ "%02d"|format(m) }}</option>
+                {% endfor %}
+            </select>
+            <select name="ano" onchange="this.form.submit()" class="p-2 border border-gray-300 rounded-lg text-sm">
+                {% for a in range(ano + 1, ano - 4, -1) %}
+                    <option value="{{ a }}" {% if a == ano %}selected{% endif %}>{{ a }}</option>
+                {% endfor %}
+            </select>
+        </form>
+    </header>
+
+    <section class="mb-10">
+        <h2 class="text-xl font-bold text-green-700 mb-4 border-b pb-2">
+            Receitas — Previsto: R$ {{ "%.2f"|format(comparativo.total_previsto_receita) }} / Realizado: R$ {{ "%.2f"|format(comparativo.total_realizado_receita) }}
+        </h2>
+        <div class="overflow-x-auto shadow rounded-lg">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoria</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Previsto</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Realizado</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Diferença</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-100">
+                    {% for linha in comparativo.receitas %}{{ linha_orcamento(linha, 'RECEITA') }}{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section>
+        <h2 class="text-xl font-bold text-red-700 mb-4 border-b pb-2">
+            Despesas — Previsto: R$ {{ "%.2f"|format(comparativo.total_previsto_saida) }} / Realizado: R$ {{ "%.2f"|format(comparativo.total_realizado_saida) }}
+        </h2>
+        <div class="overflow-x-auto shadow rounded-lg">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoria</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Previsto</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Realizado</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Diferença</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-100">
+                    {% for linha in comparativo.saidas %}{{ linha_orcamento(linha, 'SAIDA', true) }}{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+</div>
+{% endblock %}
