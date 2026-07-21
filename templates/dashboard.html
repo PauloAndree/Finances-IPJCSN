@@ -75,25 +75,26 @@
     <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
         <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-green-500">
             <p class="text-sm font-medium text-gray-500">Entradas (Mês)</p>
-            <p class="text-3xl font-bold text-green-700 mt-1">
+            <p id="resumo-entradas" class="text-3xl font-bold text-green-700 mt-1">
                 R$ {{ "%.2f"|format(total_entradas) | default("0.00") }}
             </p>
         </div>
 
         <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-red-500">
             <p class="text-sm font-medium text-gray-500">Saídas (Mês)</p>
-            <p class="text-3xl font-bold text-red-700 mt-1">
+            <p id="resumo-saidas" class="text-3xl font-bold text-red-700 mt-1">
                 R$ {{ "%.2f"|format(total_saidas) | default("0.00") }}
             </p>
         </div>
 
         <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-brand-500">
             <p class="text-sm font-medium text-gray-500">Saldo Atual</p>
-            <p class="text-3xl font-bold text-brand-700 mt-1">
+            <p id="resumo-saldo" class="text-3xl font-bold text-brand-700 mt-1">
                 R$ {{ "%.2f"|format(saldo) | default("0.00") }}
             </p>
         </div>
     </section>
+    <p id="resumo-atualizado" class="text-xs text-gray-400 text-right -mt-8 mb-8"></p>
 
     <!-- SEÇÃO CONTAS A PAGAR -->
     {% if contas_destaque %}
@@ -200,7 +201,7 @@
 
         <p class="text-2xl font-bold text-gray-800">
             Total de Entradas Hoje:
-            <span class="text-green-600">
+            <span id="resumo-total-dia" class="text-green-600">
                 R$ {{ "%.2f"|format(total_dia) | default("0.00") }}
             </span>
         </p>
@@ -276,6 +277,41 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script>
+    // Atualiza os números do resumo periodicamente, sem precisar recarregar a página.
+    (function () {
+        const elEntradas = document.getElementById('resumo-entradas');
+        const elSaidas = document.getElementById('resumo-saidas');
+        const elSaldo = document.getElementById('resumo-saldo');
+        const elTotalDia = document.getElementById('resumo-total-dia');
+        const elAtualizado = document.getElementById('resumo-atualizado');
+        if (!elEntradas) return;
+
+        function formatarReal(valor) {
+            return 'R$ ' + Number(valor).toFixed(2);
+        }
+
+        async function atualizarResumo() {
+            try {
+                const res = await fetch('/api/dashboard-resumo');
+                if (!res.ok) return;
+                const dados = await res.json();
+                elEntradas.textContent = formatarReal(dados.total_entradas);
+                elSaidas.textContent = formatarReal(dados.total_saidas);
+                elSaldo.textContent = formatarReal(dados.saldo);
+                if (elTotalDia) elTotalDia.textContent = formatarReal(dados.total_dia);
+                if (elAtualizado) {
+                    const agora = new Date();
+                    elAtualizado.textContent = 'Atualizado às ' + agora.toLocaleTimeString('pt-BR');
+                }
+            } catch (e) {
+                // Falha silenciosa — tenta de novo no próximo ciclo, sem incomodar o usuário.
+            }
+        }
+
+        setInterval(atualizarResumo, 20000);
+    })();
+</script>
 {% if not modo_consulta %}
 <script>
     const chatContainer = document.getElementById("chat-container");

@@ -416,8 +416,13 @@
             const nonPrintElements = document.querySelectorAll('.no-print');
             nonPrintElements.forEach(el => el.style.display = 'none');
 
+            // Garante que o PDF sempre saia com fundo claro, mesmo com o tema escuro ativo.
+            const estavaEscuro = document.documentElement.classList.contains('dark');
+            document.documentElement.classList.remove('dark');
+
             html2pdf().set(options).from(element).save().then(() => {
                 nonPrintElements.forEach(el => el.style.display = '');
+                if (estavaEscuro) document.documentElement.classList.add('dark');
             });
         });
     });

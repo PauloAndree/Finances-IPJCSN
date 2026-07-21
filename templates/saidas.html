@@ -11,7 +11,7 @@
     {% if pode_editar %}
     <section class="mb-10 p-6 bg-red-50 rounded-xl shadow-inner border border-red-200">
         <h3 class="text-xl font-bold text-red-800 mb-4">Adicionar Nova Saída</h3>
-        <form method="POST" action="{{ url_for('saidas') | default('#') }}" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form method="POST" action="{{ url_for('saidas') | default('#') }}" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
             <div>
                 <label for="tipo" class="block text-sm font-medium text-gray-700 mb-1">Tipo:</label>
@@ -60,6 +60,11 @@
                 <input type="date" id="data_vencimento" name="data_vencimento" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 shadow-sm">
             </div>
 
+            <div class="md:col-span-2">
+                <label for="comprovante" class="block text-sm font-medium text-gray-700 mb-1">Comprovante (Opcional — PNG, JPG, WEBP ou PDF):</label>
+                <input type="file" id="comprovante" name="comprovante" accept=".png,.jpg,.jpeg,.webp,.pdf" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 shadow-sm bg-white">
+            </div>
+
             <div class="md:col-span-2 mt-4">
                 <button type="submit" class="w-full py-3 bg-red-600 text-white font-bold rounded-lg shadow-lg hover:bg-red-700 transition duration-300 transform hover:scale-[1.01] focus:outline-none focus:ring-4 focus:ring-red-500 focus:ring-opacity-50">
                     Adicionar Saída
@@ -103,7 +108,12 @@
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ s.data.strftime("%d/%m/%Y") }}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ s.data_pagamento.strftime("%d/%m/%Y") if s.data_pagamento else "-" }}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ s.data_vencimento.strftime("%d/%m/%Y") if s.data_vencimento else "-" }}</td>
-                        <td class="px-6 py-4 whitespace-normal text-sm text-gray-500 max-w-xs">{{ s.descricao }}</td>
+                        <td class="px-6 py-4 whitespace-normal text-sm text-gray-500 max-w-xs">
+                            {{ s.descricao }}
+                            {% if s.comprovante_arquivo %}
+                            <a href="{{ url_for('ver_comprovante', tabela='saidas', id=s.id_saida) }}" target="_blank" class="block text-xs text-brand-600 hover:underline mt-1">📎 Ver comprovante</a>
+                            {% endif %}
+                        </td>
                         {% if pode_editar %}
                         <td class="px-6 py-4 whitespace-nowrap text-sm space-x-2 flex">
                             <a href="{{ url_for('editar_saida', id=s.id_saida) | default('#') }}" class="px-3 py-1 bg-blue-500 text-white text-xs font-medium rounded hover:bg-blue-600 transition">Editar</a>
@@ -138,6 +148,9 @@
                     <span>Vencimento: {{ s.data_vencimento.strftime("%d/%m/%Y") if s.data_vencimento else "-" }}</span>
                 </div>
                 {% if s.descricao %}<p class="text-sm text-gray-500 mt-2">{{ s.descricao }}</p>{% endif %}
+                {% if s.comprovante_arquivo %}
+                <a href="{{ url_for('ver_comprovante', tabela='saidas', id=s.id_saida) }}" target="_blank" class="block text-xs text-brand-600 hover:underline mt-1">📎 Ver comprovante</a>
+                {% endif %}
                 {% if pode_editar %}
                 <div class="flex gap-2 mt-3">
                     <a href="{{ url_for('editar_saida', id=s.id_saida) | default('#') }}" class="flex-1 text-center px-3 py-1.5 bg-blue-500 text-white text-xs font-medium rounded hover:bg-blue-600 transition">Editar</a>
@@ -151,6 +164,22 @@
             <p class="text-center text-gray-500 italic py-6">Nenhuma saída registrada neste momento.</p>
             {% endfor %}
         </div>
+
+        {% if paginacao and paginacao.pages > 1 %}
+        <div class="flex justify-between items-center mt-6">
+            {% if paginacao.has_prev %}
+                <a href="{{ url_for('saidas', page=paginacao.prev_num) }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition">&larr; Anterior</a>
+            {% else %}
+                <span class="px-4 py-2 text-sm text-gray-300">&larr; Anterior</span>
+            {% endif %}
+            <span class="text-sm text-gray-500">Página {{ paginacao.page }} de {{ paginacao.pages }} ({{ paginacao.total }} no total)</span>
+            {% if paginacao.has_next %}
+                <a href="{{ url_for('saidas', page=paginacao.next_num) }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition">Próxima &rarr;</a>
+            {% else %}
+                <span class="px-4 py-2 text-sm text-gray-300">Próxima &rarr;</span>
+            {% endif %}
+        </div>
+        {% endif %}
     </section>
 
 </div>

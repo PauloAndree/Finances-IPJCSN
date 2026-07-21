@@ -8,6 +8,54 @@
         <h1 class="text-3xl font-extrabold text-brand-700">Usuários do Sistema</h1>
     </header>
 
+    <section class="mb-10 p-6 bg-gray-50 rounded-xl shadow-inner border border-gray-200">
+        <div class="flex flex-wrap justify-between items-center gap-3">
+            <div>
+                <h3 class="text-lg font-bold text-gray-700">Backup do Banco de Dados</h3>
+                <p class="text-sm text-gray-500 mt-1">
+                    {% if ultimo_backup %}
+                        Último backup: {{ ultimo_backup.strftime("%d/%m/%Y %H:%M") }} &middot; {{ total_backups }} backup{{ 's' if total_backups != 1 else '' }} guardado{{ 's' if total_backups != 1 else '' }}
+                    {% else %}
+                        Nenhum backup criado ainda.
+                    {% endif %}
+                </p>
+            </div>
+            <form method="POST" action="{{ url_for('backup_agora') }}">
+                <button type="submit" class="px-4 py-2 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition shadow-md">
+                    Fazer Backup Agora
+                </button>
+            </form>
+        </div>
+    </section>
+
+    <section class="mb-10 p-6 bg-gray-50 rounded-xl shadow-inner border border-gray-200">
+        <div class="flex flex-wrap justify-between items-center gap-3">
+            <div>
+                <h3 class="text-lg font-bold text-gray-700">Avisos de Vencimento por E-mail</h3>
+                {% if smtp_configurado %}
+                <p class="text-sm text-gray-500 mt-1">
+                    Ativo &middot; enviando para <span class="font-medium">{{ smtp_destinatario }}</span>
+                    {% if ultimo_aviso %}&middot; último envio: {{ ultimo_aviso }}{% endif %}
+                </p>
+                {% else %}
+                <p class="text-sm text-gray-500 mt-1">
+                    Não configurado. Defina as variáveis de ambiente <code class="text-xs bg-gray-200 px-1 rounded">SMTP_HOST</code>,
+                    <code class="text-xs bg-gray-200 px-1 rounded">SMTP_USER</code>,
+                    <code class="text-xs bg-gray-200 px-1 rounded">SMTP_SENHA</code> e
+                    <code class="text-xs bg-gray-200 px-1 rounded">SMTP_DESTINATARIO</code> e reinicie o sistema para ativar.
+                </p>
+                {% endif %}
+            </div>
+            {% if smtp_configurado %}
+            <form method="POST" action="{{ url_for('enviar_aviso_vencimento_agora') }}">
+                <button type="submit" class="px-4 py-2 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition shadow-md">
+                    Enviar Aviso Agora
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </section>
+
     <section class="mb-10 p-6 bg-brand-50 rounded-xl shadow-inner border border-brand-100">
         <h3 class="text-xl font-bold text-brand-800 mb-4">Novo Usuário</h3>
         <form method="POST" action="{{ url_for('usuarios') }}" class="grid grid-cols-1 md:grid-cols-2 gap-4">

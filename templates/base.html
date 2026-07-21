@@ -3,11 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Sistema Financeiro{% endblock %} - IPJCSN</title>
+
+    <script>
+        // Aplica o tema salvo ANTES da página renderizar, evitando o "flash" da cor errada.
+        (function () {
+            const salvo = localStorage.getItem('tema');
+            const escuro = salvo ? salvo === 'escuro' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (escuro) document.documentElement.classList.add('dark');
+        })();
+    </script>
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
@@ -24,6 +35,41 @@
         input[type=number]::-webkit-inner-spin-button,
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { appearance: textfield; -moz-appearance: textfield; }
+
+        /* ========================================
+        TEMA ESCURO — sobrescreve as classes utilitárias mais usadas no sistema
+        (o Tailwind via CDN não gera classes dark: já existentes no HTML sem
+        que cada elemento as tenha marcadas, então aplicamos globalmente aqui)
+        ======================================== */
+        .dark body { background-color: #0f172a; }
+        .dark .bg-white { background-color: #1e293b !important; }
+        .dark .bg-gray-50 { background-color: #0f172a !important; }
+        .dark .bg-gray-100 { background-color: #1e293b !important; }
+        .dark .bg-brand-50 { background-color: #1e2547 !important; }
+        .dark .bg-red-50 { background-color: #3f1d24 !important; }
+        .dark .bg-green-50 { background-color: #14301f !important; }
+        .dark .bg-amber-50 { background-color: #3a2c10 !important; }
+        .dark .text-gray-800 { color: #f1f5f9 !important; }
+        .dark .text-gray-700 { color: #e2e8f0 !important; }
+        .dark .text-gray-600 { color: #cbd5e1 !important; }
+        .dark .text-gray-500 { color: #94a3b8 !important; }
+        .dark .text-gray-400 { color: #64748b !important; }
+        .dark .border-gray-200 { border-color: #334155 !important; }
+        .dark .border-gray-300 { border-color: #334155 !important; }
+        .dark .border-b { border-color: #334155; }
+        .dark .border-t { border-color: #334155; }
+        .dark .divide-gray-200 > * + * { border-color: #334155 !important; }
+        .dark .divide-gray-100 > * + * { border-color: #334155 !important; }
+        .dark .shadow, .dark .shadow-sm, .dark .shadow-md, .dark .shadow-lg, .dark .shadow-xl, .dark .shadow-2xl {
+            box-shadow: 0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.4);
+        }
+        .dark input, .dark select, .dark textarea {
+            background-color: #0f172a !important;
+            color: #f1f5f9 !important;
+            border-color: #334155 !important;
+        }
+        .dark table thead { background-color: #1e293b !important; }
+        .dark tr.hover\:bg-gray-50:hover, .dark .hover\:bg-gray-50:hover { background-color: #273449 !important; }
     </style>
 
     {% block extra_head %}{% endblock %}
@@ -45,25 +91,46 @@
                     <a href="{{ url_for('entradas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Entradas</a>
                     <a href="{{ url_for('saidas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Saídas</a>
                     <a href="{{ url_for('relatorio') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Relatório</a>
+                    <a href="{{ url_for('relatorio_anual') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Relatório Anual</a>
                     <a href="{{ url_for('contas_a_pagar') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Contas a Pagar</a>
                     {% if pode_editar %}
                     <a href="{{ url_for('contas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Contas Bancárias</a>
                     <a href="{{ url_for('membros') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Membros</a>
                     <a href="{{ url_for('orcamentos') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Orçamento</a>
+                    <a href="{{ url_for('plano_contas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Plano de Contas</a>
                     {% endif %}
                     {% endif %}
                     {% if cargo_atual == 'administrador' %}
                     <a href="{{ url_for('historico') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Histórico</a>
+                    <a href="{{ url_for('log_acessos') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Log de Acessos</a>
                     <a href="{{ url_for('usuarios') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Usuários</a>
                     {% endif %}
-                    <a href="{{ url_for('logout') }}" class="ml-2 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition">Sair</a>
+                    <button id="theme-toggle" type="button" class="ml-1 p-2 rounded-lg text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition" aria-label="Alternar tema claro/escuro">
+                        <svg id="theme-icon-sol" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                        <svg id="theme-icon-lua" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                        </svg>
+                    </button>
+                    <a href="{{ url_for('logout') }}" class="ml-1 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition">Sair</a>
                 </div>
 
-                <button id="mobile-menu-button" class="md:hidden p-2 text-gray-600 hover:text-brand-700" aria-label="Abrir menu">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                </button>
+                <div class="flex items-center gap-1 md:hidden">
+                    <button id="theme-toggle-mobile" type="button" class="p-2 rounded-lg text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition" aria-label="Alternar tema claro/escuro">
+                        <svg id="theme-icon-sol-mobile" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                        <svg id="theme-icon-lua-mobile" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                        </svg>
+                    </button>
+                    <button id="mobile-menu-button" class="p-2 text-gray-600 hover:text-brand-700" aria-label="Abrir menu">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -74,15 +141,18 @@
                 <a href="{{ url_for('entradas') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Entradas</a>
                 <a href="{{ url_for('saidas') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Saídas</a>
                 <a href="{{ url_for('relatorio') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Relatório</a>
+                <a href="{{ url_for('relatorio_anual') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Relatório Anual</a>
                 <a href="{{ url_for('contas_a_pagar') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Contas a Pagar</a>
                 {% if pode_editar %}
                 <a href="{{ url_for('contas') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Contas Bancárias</a>
                 <a href="{{ url_for('membros') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Membros</a>
                 <a href="{{ url_for('orcamentos') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Orçamento</a>
+                <a href="{{ url_for('plano_contas') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Plano de Contas</a>
                 {% endif %}
                 {% endif %}
                 {% if cargo_atual == 'administrador' %}
                 <a href="{{ url_for('historico') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Histórico</a>
+                <a href="{{ url_for('log_acessos') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Log de Acessos</a>
                 <a href="{{ url_for('usuarios') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Usuários</a>
                 {% endif %}
                 <a href="{{ url_for('logout') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50">Sair</a>
@@ -96,6 +166,23 @@
             if (btn && menu) {
                 btn.addEventListener('click', () => menu.classList.toggle('hidden'));
             }
+
+            // Tema claro/escuro
+            function atualizarIcones() {
+                const escuro = document.documentElement.classList.contains('dark');
+                document.querySelectorAll('[id^="theme-icon-sol"]').forEach(el => el.classList.toggle('hidden', !escuro));
+                document.querySelectorAll('[id^="theme-icon-lua"]').forEach(el => el.classList.toggle('hidden', escuro));
+            }
+            function alternarTema() {
+                const escuro = document.documentElement.classList.toggle('dark');
+                localStorage.setItem('tema', escuro ? 'escuro' : 'claro');
+                atualizarIcones();
+            }
+            const toggleDesktop = document.getElementById('theme-toggle');
+            const toggleMobile = document.getElementById('theme-toggle-mobile');
+            if (toggleDesktop) toggleDesktop.addEventListener('click', alternarTema);
+            if (toggleMobile) toggleMobile.addEventListener('click', alternarTema);
+            atualizarIcones();
         });
     </script>
     {% endif %}
@@ -117,6 +204,25 @@
     {% endwith %}
 
     {% block content %}{% endblock %}
+
+    <script>
+        // Insere o token CSRF automaticamente em todo formulário POST da página,
+        // sem precisar editar cada template individualmente.
+        document.addEventListener('DOMContentLoaded', function () {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            const token = meta ? meta.getAttribute('content') : '';
+            if (!token) return;
+            document.querySelectorAll('form').forEach(function (form) {
+                if (form.method.toLowerCase() === 'post' && !form.querySelector('input[name="csrf_token"]')) {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'csrf_token';
+                    input.value = token;
+                    form.appendChild(input);
+                }
+            });
+        });
+    </script>
 
     {% block extra_scripts %}{% endblock %}
 </body>

@@ -12,7 +12,7 @@
     </header>
 
     <section class="p-6 bg-red-50 rounded-xl shadow-inner border border-red-200">
-        <form method="POST" class="space-y-4">
+        <form method="POST" enctype="multipart/form-data" class="space-y-4">
 
             <div>
                 <label for="tipo" class="block text-sm font-medium text-gray-700 mb-1">Tipo:</label>
@@ -64,6 +64,18 @@
             <div>
                 <label for="data_vencimento" class="block text-sm font-medium text-gray-700 mb-1">Data de Vencimento:</label>
                 <input type="date" id="data_vencimento" name="data_vencimento" value="{{ saida.data_vencimento.strftime('%Y-%m-%d') if saida.data_vencimento else '' }}" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 shadow-sm">
+            </div>
+
+            <div>
+                <label for="comprovante" class="block text-sm font-medium text-gray-700 mb-1">Comprovante (Opcional — PNG, JPG, WEBP ou PDF):</label>
+                {% if saida.comprovante_arquivo %}
+                <p class="text-xs text-gray-500 mb-1">
+                    Já existe um comprovante anexado.
+                    <a href="{{ url_for('ver_comprovante', tabela='saidas', id=saida.id_saida) }}" target="_blank" class="text-brand-600 hover:underline">Ver atual</a>
+                    — envie um novo arquivo abaixo para substituí-lo.
+                </p>
+                {% endif %}
+                <input type="file" id="comprovante" name="comprovante" accept=".png,.jpg,.jpeg,.webp,.pdf" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 shadow-sm bg-white">
             </div>
 
             <div class="flex space-x-4 mt-6">

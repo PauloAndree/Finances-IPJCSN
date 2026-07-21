@@ -1,10 +1,14 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, make_response
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, make_response, send_from_directory, abort
 import csv
 import io
 import os
+import shutil
+import glob
 import requests
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
+from flask_wtf import CSRFProtect
+from flask_limiter import Limiter
 from datetime import datetime, date, timedelta
 from sqlalchemy import func
 from collections import defaultdict # Novo: Para agregação de dados no relatório
@@ -12,6 +16,10 @@ from functools import wraps
 import json
 import re
 import secrets
+import smtplib
+import threading
+import time
+from email.mime.text import MIMEText
 
 # ==============================
 # CONFIGURAÇÃO DO FLASK
@@ -25,9 +33,42 @@ if not app.secret_key:
           "Defina SECRET_KEY no ambiente para persistir sessões entre reinícios.")
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///igreja_finance.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024  # 8 MB, limite para anexos de comprovante
+
+# ==============================
+# DADOS DA IGREJA (usados no recibo de doação e futuros documentos formais)
+# ==============================
+IGREJA_NOME = "Igreja Pentecostal Jesus Cristo é a Salvação das Nações"
+IGREJA_CNPJ = "07.071.168/0001-37"
+IGREJA_ENDERECO = "R. Ubiratã, 101 - Parque Pirajussara, Embu das Artes - SP, 06815-030"
+IGREJA_CIDADE_UF = "Embu das Artes - SP"
+
+# ==============================
+# CONFIGURAÇÃO DE E-MAIL (avisos de vencimento de contas a pagar)
+# ==============================
+SMTP_HOST = os.environ.get('SMTP_HOST', '')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER', '')
+SMTP_SENHA = os.environ.get('SMTP_SENHA', '')
+SMTP_REMETENTE = os.environ.get('SMTP_REMETENTE', SMTP_USER)
+SMTP_DESTINATARIO = os.environ.get('SMTP_DESTINATARIO', '')
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
+csrf = CSRFProtect(app)
+
+
+def get_ip_real():
+    """Resolve o IP real do cliente por trás do túnel Cloudflare (que usa CF-Connecting-IP),
+    com fallback para X-Forwarded-For e, por fim, o IP direto da conexão."""
+    return (
+        request.headers.get('CF-Connecting-IP')
+        or request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+        or request.remote_addr
+    )
+
+
+limiter = Limiter(get_ip_real, app=app, default_limits=[])
 
 # Variáveis globais de API (Mantidas, mas não usadas nesta rota)
 # Variáveis globais de API (lê da variável de ambiente `GEMINI_API_KEY`)
@@ -151,6 +192,7 @@ class Entrada(db.Model):
     descricao = db.Column(db.String(200))
     conta_id = db.Column(db.Integer, db.ForeignKey('contas.id_conta'))
     membro_id = db.Column(db.Integer)  # vínculo com dizimista/membro, adicionado na Fase 3
+    comprovante_arquivo = db.Column(db.String(255))
 
 
 class Saida(db.Model):
@@ -164,6 +206,7 @@ class Saida(db.Model):
     data_vencimento = db.Column(db.DateTime)
     descricao = db.Column(db.String(200))
     conta_id = db.Column(db.Integer, db.ForeignKey('contas.id_conta'))
+    comprovante_arquivo = db.Column(db.String(255))
 
 
 class Conta(db.Model):
@@ -199,6 +242,15 @@ class Membro(db.Model):
     data_criacao = db.Column(db.DateTime, default=datetime.now)
 
 
+class PlanoConta(db.Model):
+    __tablename__ = "plano_contas"
+    id_plano = db.Column(db.Integer, primary_key=True)
+    codigo = db.Column(db.String(20), nullable=False, unique=True)
+    nome = db.Column(db.String(100), nullable=False)
+    tipo = db.Column(db.String(10), nullable=False)  # 'RECEITA' | 'SAIDA'
+    ativo = db.Column(db.Boolean, default=True)
+
+
 class Orcamento(db.Model):
     __tablename__ = "orcamentos"
     id_orcamento = db.Column(db.Integer, primary_key=True)
@@ -222,10 +274,20 @@ class HistoricoAlteracao(db.Model):
     dados_depois = db.Column(db.Text)  # snapshot JSON ou NULL
 
 
+class LoginLog(db.Model):
+    __tablename__ = "login_logs"
+    id_log = db.Column(db.Integer, primary_key=True)
+    email_tentativa = db.Column(db.String(100))
+    sucesso = db.Column(db.Boolean, default=False)
+    motivo = db.Column(db.String(100))  # ex.: 'senha incorreta', 'usuário desativado', 'sucesso'
+    ip = db.Column(db.String(45))
+    data_hora = db.Column(db.DateTime, default=datetime.now)
+
+
 # ==============================
-# PLANO DE CONTAS (fonte única — usado por todas as rotas e templates)
+# PLANO DE CONTAS (editável em /plano-contas; seed inicial usado só na primeira execução)
 # ==============================
-CONTAS_RECEITA = [
+SEED_PLANO_RECEITA = [
     {"codigo": "1.1", "nome": "Dízimos"},
     {"codigo": "1.2", "nome": "Ofertas"},
     {"codigo": "1.3", "nome": "Contribuições"},
@@ -234,7 +296,7 @@ CONTAS_RECEITA = [
     {"codigo": "1.6", "nome": "Outras Receitas"},
 ]
 
-CONTAS_SAIDA = [
+SEED_PLANO_SAIDA = [
     {"codigo": "2.1", "nome": "Despesas com Pessoal"},
     {"codigo": "2.2", "nome": "Despesas Operacionais Fixas"},
     {"codigo": "2.3", "nome": "Despesas Administrativas"},
@@ -246,8 +308,30 @@ CONTAS_SAIDA = [
 FORMAS_PAGAMENTO_ENTRADA = ['Dinheiro', 'Pix', 'Débito', 'Crédito', 'Transferência']
 FORMAS_PAGAMENTO_SAIDA = ['Dinheiro', 'Pix', 'Débito', 'Crédito', 'Boleto']
 
-NOME_RECEITA_POR_CODIGO = {c['codigo']: c['nome'] for c in CONTAS_RECEITA}
-NOME_SAIDA_POR_CODIGO = {c['codigo']: c['nome'] for c in CONTAS_SAIDA}
+ITENS_POR_PAGINA = 25
+
+
+def contas_receita(somente_ativas=True):
+    query = PlanoConta.query.filter_by(tipo='RECEITA')
+    if somente_ativas:
+        query = query.filter_by(ativo=True)
+    return [{"codigo": c.codigo, "nome": c.nome} for c in query.order_by(PlanoConta.codigo).all()]
+
+
+def contas_saida(somente_ativas=True):
+    query = PlanoConta.query.filter_by(tipo='SAIDA')
+    if somente_ativas:
+        query = query.filter_by(ativo=True)
+    return [{"codigo": c.codigo, "nome": c.nome} for c in query.order_by(PlanoConta.codigo).all()]
+
+
+def nome_receita_por_codigo():
+    # Inclui categorias desativadas para que lançamentos antigos continuem exibindo o nome correto.
+    return {c['codigo']: c['nome'] for c in contas_receita(somente_ativas=False)}
+
+
+def nome_saida_por_codigo():
+    return {c['codigo']: c['nome'] for c in contas_saida(somente_ativas=False)}
 
 
 def categoria_display(codigo, mapa_nomes):
@@ -313,6 +397,17 @@ def registrar_historico(tabela, id_registro, operacao, antes=None, depois=None):
         dados_antes=json.dumps(antes, ensure_ascii=False) if antes is not None else None,
         dados_depois=json.dumps(depois, ensure_ascii=False) if depois is not None else None,
     ))
+
+
+def registrar_login_log(email, sucesso, motivo=''):
+    """Registra uma tentativa de login (sucesso ou falha) com o IP real do cliente."""
+    db.session.add(LoginLog(
+        email_tentativa=email,
+        sucesso=sucesso,
+        motivo=motivo,
+        ip=get_ip_real(),
+    ))
+    db.session.commit()
 
 
 @app.context_processor
@@ -417,7 +512,7 @@ def get_contas_a_pagar(dias_proximos=7):
 
     pendentes = Saida.query.filter(Saida.data_pagamento.is_(None)).order_by(Saida.data_vencimento.asc()).all()
     for s in pendentes:
-        setattr(s, 'categoria_nome', categoria_display(s.tipo, NOME_SAIDA_POR_CODIGO))
+        setattr(s, 'categoria_nome', categoria_display(s.tipo, nome_saida_por_codigo()))
 
     atrasadas = [s for s in pendentes if s.data_vencimento and s.data_vencimento.date() < hoje]
     proximas = [s for s in pendentes if s.data_vencimento and hoje <= s.data_vencimento.date() <= limite]
@@ -431,6 +526,110 @@ def get_contas_a_pagar(dias_proximos=7):
         'futuras': futuras,
         'sem_vencimento': sem_vencimento,
     }
+
+
+def smtp_configurado():
+    return bool(SMTP_HOST and SMTP_USER and SMTP_SENHA and SMTP_DESTINATARIO)
+
+
+def enviar_email(destinatario, assunto, corpo_html):
+    """Envia um e-mail via SMTP usando as credenciais configuradas em variáveis de ambiente.
+    Retorna True se enviado com sucesso, False caso contrário (registra o erro no console,
+    já que este envio roda em segundo plano sem usuário para ver um flash)."""
+    if not smtp_configurado():
+        return False
+    try:
+        msg = MIMEText(corpo_html, 'html', 'utf-8')
+        msg['Subject'] = assunto
+        msg['From'] = SMTP_REMETENTE
+        msg['To'] = destinatario
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as servidor:
+            servidor.starttls()
+            servidor.login(SMTP_USER, SMTP_SENHA)
+            servidor.sendmail(SMTP_REMETENTE, [destinatario], msg.as_string())
+        return True
+    except Exception as e:
+        print(f"Erro ao enviar e-mail de aviso de vencimento: {e}")
+        return False
+
+
+def montar_corpo_aviso_vencimento(atrasadas, proximas):
+    def linhas(lista):
+        if not lista:
+            return '<p style="color:#6b7280;font-style:italic;">Nenhuma.</p>'
+        html = '<table style="width:100%;border-collapse:collapse;font-size:14px;">'
+        for s in lista:
+            html += (
+                '<tr style="border-bottom:1px solid #e5e7eb;">'
+                f'<td style="padding:6px;">{s.categoria_nome}</td>'
+                f'<td style="padding:6px;">{s.descricao or "-"}</td>'
+                f'<td style="padding:6px;">{s.data_vencimento.strftime("%d/%m/%Y") if s.data_vencimento else "-"}</td>'
+                f'<td style="padding:6px;text-align:right;">R$ {s.valor:.2f}</td>'
+                '</tr>'
+            )
+        html += '</table>'
+        return html
+
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+        <h2 style="color:#1f2937;">Aviso de Contas a Pagar — {IGREJA_NOME}</h2>
+        <h3 style="color:#dc2626;">Atrasadas ({len(atrasadas)})</h3>
+        {linhas(atrasadas)}
+        <h3 style="color:#d97706;">Vencendo nos próximos dias ({len(proximas)})</h3>
+        {linhas(proximas)}
+        <p style="color:#6b7280;font-size:12px;margin-top:24px;">
+            Mensagem automática do sistema financeiro. Acesse o sistema para marcar contas como pagas.
+        </p>
+    </div>
+    """
+
+
+def _caminho_ultimo_aviso():
+    return os.path.join(app.instance_path, 'ultimo_aviso_vencimento.txt')
+
+
+def verificar_e_enviar_avisos_vencimento(forcar=False):
+    """Verifica contas a pagar atrasadas/próximas do vencimento e envia um e-mail resumo,
+    no máximo uma vez por dia (a menos que forcar=True). Retorna um dicionário com o
+    resultado, usado tanto pelo laço em segundo plano quanto pela rota de envio manual."""
+    if not smtp_configurado():
+        return {'enviado': False, 'motivo': 'E-mail não configurado.'}
+
+    hoje_str = date.today().isoformat()
+    caminho = _caminho_ultimo_aviso()
+    if not forcar and os.path.exists(caminho):
+        with open(caminho, 'r', encoding='utf-8') as f:
+            if f.read().strip() == hoje_str:
+                return {'enviado': False, 'motivo': 'Aviso já enviado hoje.'}
+
+    contas = get_contas_a_pagar()
+    atrasadas, proximas = contas['atrasadas'], contas['proximas']
+    if not atrasadas and not proximas:
+        with open(caminho, 'w', encoding='utf-8') as f:
+            f.write(hoje_str)
+        return {'enviado': False, 'motivo': 'Nenhuma conta atrasada ou próxima do vencimento.'}
+
+    assunto = f"[{IGREJA_NOME}] Aviso: {len(atrasadas)} conta(s) atrasada(s), {len(proximas)} vencendo em breve"
+    corpo = montar_corpo_aviso_vencimento(atrasadas, proximas)
+    sucesso = enviar_email(SMTP_DESTINATARIO, assunto, corpo)
+    if sucesso:
+        with open(caminho, 'w', encoding='utf-8') as f:
+            f.write(hoje_str)
+        return {'enviado': True, 'motivo': f'E-mail enviado para {SMTP_DESTINATARIO}.'}
+    return {'enviado': False, 'motivo': 'Falha ao enviar e-mail (veja o console do servidor).'}
+
+
+def _loop_avisos_vencimento():
+    """Roda em uma thread em segundo plano, verificando uma vez por hora se já é
+    hora de disparar o aviso diário de vencimento (a própria função garante que só
+    envia uma vez por dia)."""
+    while True:
+        try:
+            with app.app_context():
+                verificar_e_enviar_avisos_vencimento()
+        except Exception as e:
+            print(f"Erro no laço de avisos de vencimento: {e}")
+        time.sleep(3600)
 
 
 def get_comparativo_orcamento(ano, mes):
@@ -467,8 +666,8 @@ def get_comparativo_orcamento(ano, mes):
             })
         return linhas
 
-    linhas_receita = montar_linhas(CONTAS_RECEITA, 'RECEITA', realizado_receita)
-    linhas_saida = montar_linhas(CONTAS_SAIDA, 'SAIDA', realizado_saida)
+    linhas_receita = montar_linhas(contas_receita(), 'RECEITA', realizado_receita)
+    linhas_saida = montar_linhas(contas_saida(), 'SAIDA', realizado_saida)
 
     return {
         'receitas': linhas_receita,
@@ -477,6 +676,40 @@ def get_comparativo_orcamento(ano, mes):
         'total_realizado_receita': sum(l['realizado'] for l in linhas_receita),
         'total_previsto_saida': sum(l['previsto'] for l in linhas_saida),
         'total_realizado_saida': sum(l['realizado'] for l in linhas_saida),
+    }
+
+
+def get_resumo_anual(ano):
+    """Consolidado do ano inteiro: totais, evolução mês a mês e total por categoria."""
+    entradas_ano = Entrada.query.filter(func.strftime("%Y", Entrada.data) == str(ano)).all()
+    saidas_ano = Saida.query.filter(func.strftime("%Y", Saida.data) == str(ano)).all()
+
+    total_entradas = sum(e.valor or 0 for e in entradas_ano)
+    total_saidas = sum(s.valor or 0 for s in saidas_ano)
+
+    por_categoria_receita = defaultdict(float)
+    for e in entradas_ano:
+        por_categoria_receita[categoria_display(e.tipo, nome_receita_por_codigo())] += e.valor or 0
+
+    por_categoria_saida = defaultdict(float)
+    for s in saidas_ano:
+        por_categoria_saida[categoria_display(s.tipo, nome_saida_por_codigo())] += s.valor or 0
+
+    labels, receitas_mes, despesas_mes = [], [], []
+    for mes in range(1, 13):
+        labels.append(f"{mes:02d}/{ano % 100:02d}")
+        receitas_mes.append(sum((e.valor or 0) for e in entradas_ano if e.data.month == mes))
+        despesas_mes.append(sum((s.valor or 0) for s in saidas_ano if s.data.month == mes))
+
+    return {
+        'total_entradas': total_entradas,
+        'total_saidas': total_saidas,
+        'saldo': total_entradas - total_saidas,
+        'por_categoria_receita': dict(sorted(por_categoria_receita.items(), key=lambda x: -x[1])),
+        'por_categoria_saida': dict(sorted(por_categoria_saida.items(), key=lambda x: -x[1])),
+        'labels': labels,
+        'receitas_mes': receitas_mes,
+        'despesas_mes': despesas_mes,
     }
 
 
@@ -524,13 +757,13 @@ def get_chatbot_context_json(ref_year, ref_month):
     # Resumos por Tipo (Entradas)
     resumo_entradas_tipo = {}
     for e in entradas_mes:
-        tipo = categoria_display(e.tipo, NOME_RECEITA_POR_CODIGO) or 'Outro'
+        tipo = categoria_display(e.tipo, nome_receita_por_codigo()) or 'Outro'
         resumo_entradas_tipo[tipo] = resumo_entradas_tipo.get(tipo, 0) + (e.valor or 0)
 
     # Resumos por Tipo (Saídas)
     resumo_saidas_tipo = {}
     for s in saidas_mes:
-        tipo = categoria_display(s.tipo, NOME_SAIDA_POR_CODIGO) or 'Outro'
+        tipo = categoria_display(s.tipo, nome_saida_por_codigo()) or 'Outro'
         resumo_saidas_tipo[tipo] = resumo_saidas_tipo.get(tipo, 0) + (s.valor or 0)
 
     # Adiciona lista de movimentações detalhada
@@ -538,7 +771,7 @@ def get_chatbot_context_json(ref_year, ref_month):
     for e in entradas_mes:
         lista_movimentacoes_detalhada.append({
             "tipo": "Entrada",
-            "categoria": categoria_display(e.tipo, NOME_RECEITA_POR_CODIGO),
+            "categoria": categoria_display(e.tipo, nome_receita_por_codigo()),
             "valor": f"R$ {e.valor:.2f}",
             "data_completa": e.data.strftime('%d/%m/%Y'),
             "descricao": e.descricao
@@ -546,7 +779,7 @@ def get_chatbot_context_json(ref_year, ref_month):
     for s in saidas_mes:
         lista_movimentacoes_detalhada.append({
             "tipo": "Saida",
-            "categoria": categoria_display(s.tipo, NOME_SAIDA_POR_CODIGO),
+            "categoria": categoria_display(s.tipo, nome_saida_por_codigo()),
             "valor": f"R$ {s.valor:.2f}",
             "data_completa": s.data.strftime('%d/%m/%Y'),
             "descricao": s.descricao
@@ -598,20 +831,24 @@ def index():
     return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per minute", methods=["POST"])
 def login():
     if request.method == 'POST':
         email = request.form['email']
         senha = request.form['senha']
         usuario = Usuario.query.filter_by(email=email).first()
         if usuario and not usuario.ativo:
+            registrar_login_log(email, False, 'usuário desativado')
             flash('Este usuário foi desativado.', 'erro')
             return redirect(url_for('login'))
         if usuario and bcrypt.check_password_hash(usuario.senha, senha):
             session['usuario'] = usuario.nome
             session['cargo'] = usuario.cargo
             session['usuario_id'] = usuario.id_usuario
+            registrar_login_log(email, True, 'sucesso')
             return redirect(url_for('dashboard'))
         else:
+            registrar_login_log(email, False, 'senha incorreta' if usuario else 'e-mail não encontrado')
             flash('Email ou senha incorretos!', 'erro')
             return redirect(url_for('login'))
     return render_template('login.html')
@@ -620,6 +857,12 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+
+@app.errorhandler(429)
+def limite_excedido(e):
+    flash('Muitas tentativas de login em pouco tempo. Aguarde um minuto e tente novamente.', 'erro')
+    return redirect(url_for('login')), 429
 
 @app.route('/dashboard')
 @login_required
@@ -658,6 +901,24 @@ def dashboard():
         orcamento_previsto_saida=orcamento_mes['total_previsto_saida'],
         orcamento_realizado_saida=orcamento_mes['total_realizado_saida'],
     )
+
+@app.route('/api/dashboard-resumo', methods=['GET'])
+@login_required
+def api_dashboard_resumo():
+    """Resumo leve do dashboard, consultado periodicamente pelo navegador para
+    atualizar os números na tela sem precisar recarregar a página."""
+    summary = get_finance_summary()
+    dados = {
+        "total_entradas": float(summary['total_entradas']),
+        "total_saidas": float(summary['total_saidas']),
+        "saldo": float(summary['saldo_atual']),
+        "total_dia": float(summary['total_entradas_hoje']),
+    }
+    if session.get('cargo') != 'consulta':
+        contas_a_pagar = get_contas_a_pagar()
+        dados["total_atrasadas"] = len(contas_a_pagar['atrasadas'])
+    return jsonify(dados)
+
 
 @app.route('/entradas', methods=['GET', 'POST'])
 @roles_required(*CARGOS_DETALHE)
@@ -698,13 +959,21 @@ def entradas():
         )
         db.session.add(nova_entrada)
         db.session.flush()
+        arquivo = request.files.get('comprovante')
+        nome_arquivo = salvar_comprovante(arquivo, 'entradas', nova_entrada.id_entrada)
+        if arquivo and arquivo.filename and not nome_arquivo:
+            flash('Tipo de arquivo não permitido para comprovante. Use PNG, JPG, WEBP ou PDF.', 'aviso')
+        elif nome_arquivo:
+            nova_entrada.comprovante_arquivo = nome_arquivo
         registrar_historico('entradas', nova_entrada.id_entrada, 'criar', depois=snapshot_registro(nova_entrada))
         db.session.commit()
         flash('Entrada registrada com sucesso!', 'sucesso')
         return redirect(url_for('entradas'))
 
-    # 🔹 Carrega todas as entradas
-    todas_entradas = Entrada.query.order_by(Entrada.data.desc()).all()
+    # 🔹 Carrega as entradas paginadas (mais recentes primeiro)
+    pagina = request.args.get('page', 1, type=int)
+    paginacao = Entrada.query.order_by(Entrada.data.desc()).paginate(page=pagina, per_page=ITENS_POR_PAGINA, error_out=False)
+    todas_entradas = paginacao.items
     contas_por_id = {c.id_conta: c.nome for c in Conta.query.all()}
     membros_por_id = {m.id_membro: m.nome for m in Membro.query.all()}
 
@@ -712,14 +981,15 @@ def entradas():
     for e in todas_entradas:
         codigo = (e.tipo or '').strip()
         setattr(e, 'categoria_codigo', codigo)
-        setattr(e, 'categoria_nome', NOME_RECEITA_POR_CODIGO.get(codigo, codigo))
+        setattr(e, 'categoria_nome', nome_receita_por_codigo().get(codigo, codigo))
         setattr(e, 'conta_nome', contas_por_id.get(e.conta_id, '-'))
         setattr(e, 'membro_nome', membros_por_id.get(e.membro_id, '-'))
 
     return render_template(
         'entradas.html',
         entradas=todas_entradas,
-        contas_receita=CONTAS_RECEITA,
+        paginacao=paginacao,
+        contas_receita=contas_receita(),
         formas_pagamento=FORMAS_PAGAMENTO_ENTRADA,
         contas=Conta.query.filter_by(ativa=True).order_by(Conta.nome).all(),
         membros=Membro.query.filter_by(ativo=True).order_by(Membro.nome).all(),
@@ -774,20 +1044,29 @@ def saidas():
         nova_saida = Saida(tipo=tipo, forma_pagamento=forma_pagamento, valor=valor, descricao=descricao, data=data_saida, data_pagamento=data_pagamento, data_vencimento=data_vencimento, conta_id=conta_id)
         db.session.add(nova_saida)
         db.session.flush()
+        arquivo = request.files.get('comprovante')
+        nome_arquivo = salvar_comprovante(arquivo, 'saidas', nova_saida.id_saida)
+        if arquivo and arquivo.filename and not nome_arquivo:
+            flash('Tipo de arquivo não permitido para comprovante. Use PNG, JPG, WEBP ou PDF.', 'aviso')
+        elif nome_arquivo:
+            nova_saida.comprovante_arquivo = nome_arquivo
         registrar_historico('saidas', nova_saida.id_saida, 'criar', depois=snapshot_registro(nova_saida))
         db.session.commit()
         flash('Saída registrada com sucesso!', 'sucesso')
         return redirect(url_for('saidas'))
-    todas_saidas = Saida.query.order_by(Saida.data.desc()).all()
+    pagina = request.args.get('page', 1, type=int)
+    paginacao = Saida.query.order_by(Saida.data.desc()).paginate(page=pagina, per_page=ITENS_POR_PAGINA, error_out=False)
+    todas_saidas = paginacao.items
     contas_por_id = {c.id_conta: c.nome for c in Conta.query.all()}
     for s in todas_saidas:
-        setattr(s, 'categoria_nome', categoria_display(s.tipo, NOME_SAIDA_POR_CODIGO))
+        setattr(s, 'categoria_nome', categoria_display(s.tipo, nome_saida_por_codigo()))
         setattr(s, 'conta_nome', contas_por_id.get(s.conta_id, '-'))
 
     return render_template(
         'saidas.html',
         saidas=todas_saidas,
-        contas_saida=CONTAS_SAIDA,
+        paginacao=paginacao,
+        contas_saida=contas_saida(),
         formas_pagamento=FORMAS_PAGAMENTO_SAIDA,
         contas=Conta.query.filter_by(ativa=True).order_by(Conta.nome).all(),
     )
@@ -822,6 +1101,13 @@ def editar_entrada(id):
             except ValueError:
                 flash('Formato de data inválido.', 'aviso')
 
+        arquivo = request.files.get('comprovante')
+        nome_arquivo = salvar_comprovante(arquivo, 'entradas', entrada.id_entrada)
+        if arquivo and arquivo.filename and not nome_arquivo:
+            flash('Tipo de arquivo não permitido para comprovante. Use PNG, JPG, WEBP ou PDF.', 'aviso')
+        elif nome_arquivo:
+            entrada.comprovante_arquivo = nome_arquivo
+
         registrar_historico('entradas', entrada.id_entrada, 'editar', antes=antes, depois=snapshot_registro(entrada))
         db.session.commit()
         flash('Entrada atualizada com sucesso!', 'sucesso')
@@ -830,7 +1116,7 @@ def editar_entrada(id):
     return render_template(
         'editar_entrada.html',
         entrada=entrada,
-        contas_receita=CONTAS_RECEITA,
+        contas_receita=contas_receita(somente_ativas=False),  # inclui categoria atual mesmo se desativada depois
         formas_pagamento=FORMAS_PAGAMENTO_ENTRADA,
         contas=Conta.query.filter_by(ativa=True).order_by(Conta.nome).all(),
         membros=Membro.query.filter_by(ativo=True).order_by(Membro.nome).all(),
@@ -889,6 +1175,13 @@ def editar_saida(id):
 
         saida.conta_id = request.form.get('conta_id', type=int) or saida.conta_id
 
+        arquivo = request.files.get('comprovante')
+        nome_arquivo = salvar_comprovante(arquivo, 'saidas', saida.id_saida)
+        if arquivo and arquivo.filename and not nome_arquivo:
+            flash('Tipo de arquivo não permitido para comprovante. Use PNG, JPG, WEBP ou PDF.', 'aviso')
+        elif nome_arquivo:
+            saida.comprovante_arquivo = nome_arquivo
+
         registrar_historico('saidas', saida.id_saida, 'editar', antes=antes, depois=snapshot_registro(saida))
         db.session.commit()
         flash('Saída atualizada com sucesso!', 'sucesso')
@@ -897,7 +1190,7 @@ def editar_saida(id):
     return render_template(
         'editar_saida.html',
         saida=saida,
-        contas_saida=CONTAS_SAIDA,
+        contas_saida=contas_saida(somente_ativas=False),  # inclui categoria atual mesmo se desativada depois
         formas_pagamento=FORMAS_PAGAMENTO_SAIDA,
         contas=Conta.query.filter_by(ativa=True).order_by(Conta.nome).all(),
     )
@@ -911,6 +1204,21 @@ def excluir_saida(id):
     db.session.commit()
     flash('Saída excluída com sucesso!', 'sucesso')
     return redirect(url_for('saidas'))
+
+
+@app.route('/comprovante/<tabela>/<int:id>', methods=['GET'])
+@roles_required(*CARGOS_DETALHE)
+def ver_comprovante(tabela, id):
+    if tabela == 'entradas':
+        registro = Entrada.query.get_or_404(id)
+    elif tabela == 'saidas':
+        registro = Saida.query.get_or_404(id)
+    else:
+        abort(404)
+    if not registro.comprovante_arquivo:
+        abort(404)
+    pasta = os.path.join(app.instance_path, 'comprovantes')
+    return send_from_directory(pasta, registro.comprovante_arquivo)
 
 @app.route('/contas-a-pagar', methods=['GET'])
 @roles_required(*CARGOS_DETALHE)
@@ -1041,6 +1349,62 @@ def transferencias():
     return render_template('transferencias.html', contas=todas_contas, historico=historico)
 
 
+@app.route('/plano-contas', methods=['GET', 'POST'])
+@roles_required(*CARGOS_FINANCEIRO)
+def plano_contas():
+    if request.method == 'POST':
+        codigo = request.form.get('codigo', '').strip()
+        nome = request.form.get('nome', '').strip()
+        tipo = request.form.get('tipo', '')
+
+        if not codigo or not nome or tipo not in ('RECEITA', 'SAIDA'):
+            flash('Preencha código, nome e um tipo válido.', 'erro')
+            return redirect(url_for('plano_contas'))
+
+        if PlanoConta.query.filter_by(codigo=codigo).first():
+            flash('Já existe uma categoria com esse código.', 'erro')
+            return redirect(url_for('plano_contas'))
+
+        db.session.add(PlanoConta(codigo=codigo, nome=nome, tipo=tipo, ativo=True))
+        db.session.commit()
+        flash('Categoria criada com sucesso!', 'sucesso')
+        return redirect(url_for('plano_contas'))
+
+    receitas = PlanoConta.query.filter_by(tipo='RECEITA', ativo=True).order_by(PlanoConta.codigo).all()
+    saidas = PlanoConta.query.filter_by(tipo='SAIDA', ativo=True).order_by(PlanoConta.codigo).all()
+    return render_template('plano_contas.html', receitas=receitas, saidas=saidas)
+
+
+@app.route('/editar-plano-conta/<int:id>', methods=['GET', 'POST'])
+@roles_required(*CARGOS_FINANCEIRO)
+def editar_plano_conta(id):
+    categoria = PlanoConta.query.get_or_404(id)
+
+    if request.method == 'POST':
+        novo_codigo = request.form.get('codigo', '').strip()
+        if novo_codigo != categoria.codigo and PlanoConta.query.filter_by(codigo=novo_codigo).first():
+            flash('Já existe uma categoria com esse código.', 'erro')
+            return redirect(url_for('editar_plano_conta', id=id))
+
+        categoria.codigo = novo_codigo or categoria.codigo
+        categoria.nome = request.form.get('nome', categoria.nome).strip() or categoria.nome
+        db.session.commit()
+        flash('Categoria atualizada com sucesso!', 'sucesso')
+        return redirect(url_for('plano_contas'))
+
+    return render_template('editar_plano_conta.html', categoria=categoria)
+
+
+@app.route('/excluir-plano-conta/<int:id>', methods=['POST'])
+@roles_required(*CARGOS_FINANCEIRO)
+def excluir_plano_conta(id):
+    categoria = PlanoConta.query.get_or_404(id)
+    categoria.ativo = False
+    db.session.commit()
+    flash('Categoria removida com sucesso!', 'sucesso')
+    return redirect(url_for('plano_contas'))
+
+
 @app.route('/membros', methods=['GET', 'POST'])
 @roles_required(*CARGOS_FINANCEIRO)
 def membros():
@@ -1104,7 +1468,7 @@ def recibo_membro(id):
     ).order_by(Entrada.data).all()
 
     for e in entradas_membro:
-        setattr(e, 'categoria_nome', categoria_display(e.tipo, NOME_RECEITA_POR_CODIGO))
+        setattr(e, 'categoria_nome', categoria_display(e.tipo, nome_receita_por_codigo()))
 
     total_ano = sum(e.valor or 0 for e in entradas_membro)
 
@@ -1114,6 +1478,11 @@ def recibo_membro(id):
         ano=ano,
         entradas=entradas_membro,
         total_ano=total_ano,
+        igreja_nome=IGREJA_NOME,
+        igreja_cnpj=IGREJA_CNPJ,
+        igreja_endereco=IGREJA_ENDERECO,
+        igreja_cidade_uf=IGREJA_CIDADE_UF,
+        data_emissao=date.today(),
     )
 
 
@@ -1157,8 +1526,6 @@ def orcamentos():
         ano=ano,
         mes=mes,
         comparativo=comparativo,
-        catEntrada=CONTAS_RECEITA,
-        catSaida=CONTAS_SAIDA,
     )
 
 
@@ -1203,7 +1570,35 @@ def usuarios():
         return redirect(url_for('usuarios'))
 
     todos_usuarios = Usuario.query.order_by(Usuario.nome).all()
-    return render_template('usuarios.html', usuarios=todos_usuarios, cargos=CARGOS_VALIDOS)
+
+    pasta_backup = os.path.join(app.instance_path, 'backups')
+    backups = sorted(glob.glob(os.path.join(pasta_backup, 'igreja_finance_*.db')), reverse=True)
+    total_backups = len(backups)
+    ultimo_backup = None
+    if backups:
+        nome = os.path.basename(backups[0])
+        try:
+            ts = nome.replace('igreja_finance_', '').replace('.db', '')
+            ultimo_backup = datetime.strptime(ts, '%Y%m%d_%H%M%S')
+        except ValueError:
+            ultimo_backup = None
+
+    ultimo_aviso = None
+    caminho_aviso = _caminho_ultimo_aviso()
+    if os.path.exists(caminho_aviso):
+        with open(caminho_aviso, 'r', encoding='utf-8') as f:
+            ultimo_aviso = f.read().strip() or None
+
+    return render_template(
+        'usuarios.html',
+        usuarios=todos_usuarios,
+        cargos=CARGOS_VALIDOS,
+        total_backups=total_backups,
+        ultimo_backup=ultimo_backup,
+        smtp_configurado=smtp_configurado(),
+        smtp_destinatario=SMTP_DESTINATARIO,
+        ultimo_aviso=ultimo_aviso,
+    )
 
 
 @app.route('/editar-usuario/<int:id>', methods=['GET', 'POST'])
@@ -1251,6 +1646,28 @@ def excluir_usuario(id):
     return redirect(url_for('usuarios'))
 
 
+@app.route('/backup-agora', methods=['POST'])
+@roles_required('administrador')
+def backup_agora():
+    destino = criar_backup_banco()
+    if destino:
+        flash(f'Backup criado com sucesso: {os.path.basename(destino)}', 'sucesso')
+    else:
+        flash('Não foi possível criar o backup (banco de dados não encontrado).', 'erro')
+    return redirect(url_for('usuarios'))
+
+
+@app.route('/enviar-aviso-vencimento-agora', methods=['POST'])
+@roles_required('administrador')
+def enviar_aviso_vencimento_agora():
+    resultado = verificar_e_enviar_avisos_vencimento(forcar=True)
+    if resultado['enviado']:
+        flash(resultado['motivo'], 'sucesso')
+    else:
+        flash(resultado['motivo'], 'aviso')
+    return redirect(url_for('usuarios'))
+
+
 @app.route('/historico', methods=['GET'])
 @roles_required('administrador')
 def historico():
@@ -1277,6 +1694,27 @@ def historico():
         })
 
     return render_template('historico.html', historico=historico_formatado, tabela_filtro=tabela_filtro)
+
+
+@app.route('/log-acessos', methods=['GET'])
+@roles_required('administrador')
+def log_acessos():
+    filtro = request.args.get('status', '')
+    query = LoginLog.query.order_by(LoginLog.data_hora.desc())
+    if filtro == 'sucesso':
+        query = query.filter_by(sucesso=True)
+    elif filtro == 'falha':
+        query = query.filter_by(sucesso=False)
+    logs = query.limit(200).all()
+    return render_template('log_acessos.html', logs=logs, filtro=filtro)
+
+
+@app.route('/relatorio-anual', methods=['GET'])
+@roles_required(*CARGOS_DETALHE)
+def relatorio_anual():
+    ano = request.args.get('ano', type=int) or date.today().year
+    resumo = get_resumo_anual(ano)
+    return render_template('relatorio_anual.html', ano=ano, resumo=resumo)
 
 
 @app.route('/relatorio', methods=['GET'])
@@ -1347,7 +1785,7 @@ def relatorio():
     for e in entradas:
         movimentacoes_list.append({
             'tipo': 'ENTRADA',
-            'categoria': categoria_display(e.tipo, NOME_RECEITA_POR_CODIGO),
+            'categoria': categoria_display(e.tipo, nome_receita_por_codigo()),
             'valor': e.valor,
             'data': e.data,
             'data_pagamento': None,
@@ -1360,7 +1798,7 @@ def relatorio():
     for s in saidas:
         movimentacoes_list.append({
             'tipo': 'SAÍDA',
-            'categoria': categoria_display(s.tipo, NOME_SAIDA_POR_CODIGO),
+            'categoria': categoria_display(s.tipo, nome_saida_por_codigo()),
             'valor': s.valor,
             'data': s.data,
             'data_pagamento': s.data_pagamento,
@@ -1408,8 +1846,8 @@ def relatorio():
         end_date_value=end_date_str or "",
         tipo_value=tipo_filtro,
         categorias_selecionadas=categorias_selecionadas,
-        catEntrada=CONTAS_RECEITA,
-        catSaida=CONTAS_SAIDA,
+        catEntrada=contas_receita(somente_ativas=False),  # filtro deve alcançar categorias antigas também
+        catSaida=contas_saida(somente_ativas=False),
         total_entradas=total_entradas or 0,
         total_saidas=total_saidas or 0,
         saldo=(total_entradas or 0) - (total_saidas or 0),
@@ -1457,6 +1895,7 @@ def finance_summary_api():
         return jsonify({"error": "Erro ao buscar dados. Tente novamente."}), 500
 
 @app.route('/api/chat', methods=['POST'])
+@csrf.exempt  # chamado via fetch() JS, não formulário; não altera dados financeiros
 def api_chat():
     """Recebe a pergunta do usuário, monta o contexto financeiro e chama a Gemini
     inteiramente no servidor (a chave de API nunca é exposta ao navegador)."""
@@ -1551,7 +1990,54 @@ def _add_column_if_missing(table, column, coltype):
             print(f"Migração: coluna '{column}' adicionada em '{table}'.")
 
 
+COMPROVANTE_EXTENSOES_PERMITIDAS = {'.png', '.jpg', '.jpeg', '.pdf', '.webp'}
+
+
+def salvar_comprovante(arquivo, tabela, id_registro):
+    """Salva o arquivo de comprovante enviado em instance/comprovantes/ e retorna
+    o nome do arquivo salvo, ou None se nenhum arquivo válido foi enviado."""
+    if not arquivo or not arquivo.filename:
+        return None
+    ext = os.path.splitext(arquivo.filename)[1].lower()
+    if ext not in COMPROVANTE_EXTENSOES_PERMITIDAS:
+        return None
+    pasta = os.path.join(app.instance_path, 'comprovantes')
+    os.makedirs(pasta, exist_ok=True)
+    nome_arquivo = f"{tabela}_{id_registro}_{secrets.token_hex(6)}{ext}"
+    arquivo.save(os.path.join(pasta, nome_arquivo))
+    return nome_arquivo
+
+
+MAX_BACKUPS = 30
+
+
+def criar_backup_banco():
+    """Copia o arquivo do banco para instance/backups/ com timestamp, mantendo
+    só os MAX_BACKUPS mais recentes. Retorna o caminho do backup criado, ou None
+    se o banco ainda não existir (primeira execução)."""
+    origem = os.path.join(app.instance_path, 'igreja_finance.db')
+    if not os.path.exists(origem):
+        return None
+
+    pasta_backup = os.path.join(app.instance_path, 'backups')
+    os.makedirs(pasta_backup, exist_ok=True)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    destino = os.path.join(pasta_backup, f'igreja_finance_{timestamp}.db')
+    shutil.copy2(origem, destino)
+
+    backups = sorted(glob.glob(os.path.join(pasta_backup, 'igreja_finance_*.db')))
+    for antigo in backups[:-MAX_BACKUPS]:
+        os.remove(antigo)
+
+    return destino
+
+
 with app.app_context():
+    _backup_inicial = criar_backup_banco()
+    if _backup_inicial:
+        print(f"Backup criado: {_backup_inicial}")
+
     db.create_all()
 
     # Migração: novas colunas em entradas/saidas para vínculo com conta e membro
@@ -1559,6 +2045,8 @@ with app.app_context():
     _add_column_if_missing('entradas', 'membro_id', 'INTEGER')
     _add_column_if_missing('saidas', 'conta_id', 'INTEGER')
     _add_column_if_missing('usuarios', 'ativo', 'BOOLEAN DEFAULT 1')
+    _add_column_if_missing('entradas', 'comprovante_arquivo', 'TEXT')
+    _add_column_if_missing('saidas', 'comprovante_arquivo', 'TEXT')
 
     # Garante ao menos uma conta padrão e migra lançamentos antigos sem conta definida
     if not Conta.query.first():
@@ -1570,6 +2058,15 @@ with app.app_context():
     Entrada.query.filter_by(conta_id=None).update({Entrada.conta_id: conta_padrao.id_conta})
     Saida.query.filter_by(conta_id=None).update({Saida.conta_id: conta_padrao.id_conta})
     db.session.commit()
+
+    # Popula o plano de contas com as categorias padrão, só na primeira execução
+    if not PlanoConta.query.first():
+        for c in SEED_PLANO_RECEITA:
+            db.session.add(PlanoConta(codigo=c['codigo'], nome=c['nome'], tipo='RECEITA', ativo=True))
+        for c in SEED_PLANO_SAIDA:
+            db.session.add(PlanoConta(codigo=c['codigo'], nome=c['nome'], tipo='SAIDA', ativo=True))
+        db.session.commit()
+        print("Plano de contas inicial criado.")
 
     # Normaliza cargos de versões antigas (ex.: 'Admin' -> 'administrador') para o controle de acesso funcionar
     for u in Usuario.query.all():
@@ -1605,6 +2102,14 @@ with app.app_context():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug_mode = os.environ.get('FLASK_DEBUG', 'false').strip().lower() in ('1', 'true', 'yes')
+
+    if smtp_configurado():
+        threading.Thread(target=_loop_avisos_vencimento, daemon=True).start()
+        print("Aviso de vencimento por e-mail: ativado (verificação a cada hora).")
+    else:
+        print("Aviso de vencimento por e-mail: desativado (defina SMTP_HOST, SMTP_USER, "
+              "SMTP_SENHA e SMTP_DESTINATARIO no ambiente para ativar).")
+
     if debug_mode:
         app.run(host='0.0.0.0', port=port, debug=True)
     else:

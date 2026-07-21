@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Relatório Anual{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<style>
+    @media print {
+        .no-print { display: none !important; }
+        body { background-color: #fff !important; padding: 0 !important; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto p-4 md:p-8">
+
+    <header class="mb-8 flex flex-wrap justify-between items-center gap-3 border-b pb-4 no-print">
+        <h1 class="text-3xl font-extrabold text-gray-800">Relatório Anual Consolidado</h1>
+        <div class="flex items-center gap-2">
+            <form method="GET" class="flex items-center gap-2">
+                <label for="ano" class="text-sm font-medium text-gray-700">Ano:</label>
+                <select id="ano" name="ano" onchange="this.form.submit()" class="p-2 border border-gray-300 rounded-lg text-sm">
+                    {% for a in range(ano + 1, ano - 6, -1) %}
+                        <option value="{{ a }}" {% if a == ano %}selected{% endif %}>{{ a }}</option>
+                    {% endfor %}
+                </select>
+            </form>
+            <button id="download-pdf-button" class="px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition shadow-md">
+                Baixar PDF
+            </button>
+        </div>
+    </header>
+
+    <div id="relatorio-anual-container">
+        <div class="text-center mb-8">
+            <h2 class="text-xl font-bold text-gray-800">Prestação de Contas — {{ ano }}</h2>
+        </div>
+
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+            <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-green-500">
+                <p class="text-sm font-medium text-gray-500">Total de Entradas no Ano</p>
+                <p class="text-3xl font-bold text-green-700 mt-1">R$ {{ "%.2f"|format(resumo.total_entradas) }}</p>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-red-500">
+                <p class="text-sm font-medium text-gray-500">Total de Saídas no Ano</p>
+                <p class="text-3xl font-bold text-red-700 mt-1">R$ {{ "%.2f"|format(resumo.total_saidas) }}</p>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-xl border-l-4 border-brand-500">
+                <p class="text-sm font-medium text-gray-500">Saldo do Ano</p>
+                <p class="text-3xl font-bold text-brand-700 mt-1">R$ {{ "%.2f"|format(resumo.saldo) }}</p>
+            </div>
+        </section>
+
+        <section class="mb-10">
+            <h3 class="text-xl font-bold text-gray-700 mb-4 border-b pb-2">Evolução Mensal</h3>
+            <div class="bg-white p-6 rounded-xl shadow-xl">
+                <div class="w-full h-80">
+                    <canvas id="evolucaoAnualChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <section>
+                <h3 class="text-xl font-bold text-green-700 mb-4 border-b pb-2">Receitas por Categoria</h3>
+                <div class="bg-white rounded-xl shadow-xl overflow-hidden">
+                    <table class="w-full text-sm">
+                        <tbody class="divide-y divide-gray-100">
+                            {% for nome, valor in resumo.por_categoria_receita.items() %}
+                            <tr>
+                                <td class="px-4 py-2 text-gray-600">{{ nome }}</td>
+                                <td class="px-4 py-2 text-right font-medium text-gray-800">R$ {{ "%.2f"|format(valor) }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td class="px-4 py-4 text-center text-gray-500 italic">Nenhuma receita em {{ ano }}.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="text-xl font-bold text-red-700 mb-4 border-b pb-2">Saídas por Categoria</h3>
+                <div class="bg-white rounded-xl shadow-xl overflow-hidden">
+                    <table class="w-full text-sm">
+                        <tbody class="divide-y divide-gray-100">
+                            {% for nome, valor in resumo.por_categoria_saida.items() %}
+                            <tr>
+                                <td class="px-4 py-2 text-gray-600">{{ nome }}</td>
+                                <td class="px-4 py-2 text-right font-medium text-gray-800">R$ {{ "%.2f"|format(valor) }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td class="px-4 py-4 text-center text-gray-500 italic">Nenhuma saída em {{ ano }}.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const labels = JSON.parse('{{ resumo.labels | tojson | safe }}');
+        const receitas = JSON.parse('{{ resumo.receitas_mes | tojson | safe }}');
+        const despesas = JSON.parse('{{ resumo.despesas_mes | tojson | safe }}');
+
+        new Chart(document.getElementById('evolucaoAnualChart'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'Receitas', data: receitas, backgroundColor: '#10B981' },
+                    { label: 'Despesas', data: despesas, backgroundColor: '#EF4444' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true, title: { display: true, text: 'Valor (R$)' } } },
+                plugins: { legend: { position: 'top' } }
+            }
+        });
+
+        document.getElementById('download-pdf-button').addEventListener('click', function () {
+            const element = document.getElementById('relatorio-anual-container');
+            const options = {
+                margin: 10,
+                filename: `Relatorio_Anual_{{ ano }}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, logging: false, allowTaint: true, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+            const estavaEscuro = document.documentElement.classList.contains('dark');
+            document.documentElement.classList.remove('dark');
+            html2pdf().set(options).from(element).save().then(() => {
+                if (estavaEscuro) document.documentElement.classList.add('dark');
+            });
+        });
+    });
+</script>
+{% endblock %}

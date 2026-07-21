@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Editar Categoria{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto p-4 md:p-8">
+
+    <header class="mb-8 flex justify-between items-center border-b pb-4">
+        <h1 class="text-3xl font-extrabold text-brand-700">Editar Categoria</h1>
+        <a href="{{ url_for('plano_contas') }}" class="text-sm font-semibold text-gray-600 hover:text-brand-600 transition duration-300">
+            &larr; Voltar
+        </a>
+    </header>
+
+    <section class="p-6 bg-brand-50 rounded-xl shadow-inner border border-brand-100">
+        <form method="POST" class="space-y-4">
+            <div>
+                <label for="codigo" class="block text-sm font-medium text-gray-700 mb-1">Código:</label>
+                <input type="text" id="codigo" name="codigo" required value="{{ categoria.codigo }}" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 shadow-sm">
+            </div>
+            <div>
+                <label for="nome" class="block text-sm font-medium text-gray-700 mb-1">Nome:</label>
+                <input type="text" id="nome" name="nome" required value="{{ categoria.nome }}" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 shadow-sm">
+            </div>
+            <p class="text-xs text-gray-500">
+                Tipo: <span class="font-medium">{{ 'Receita (Entrada)' if categoria.tipo == 'RECEITA' else 'Saída' }}</span>
+                (não é possível alterar o tipo de uma categoria existente, para não afetar lançamentos antigos)
+            </p>
+            <div class="flex space-x-4 mt-6">
+                <button type="submit" class="flex-1 py-3 bg-brand-600 text-white font-bold rounded-lg shadow-lg hover:bg-brand-700 transition">
+                    Salvar Alterações
+                </button>
+                <a href="{{ url_for('plano_contas') }}" class="flex-1 py-3 bg-gray-500 text-white font-bold rounded-lg shadow-lg hover:bg-gray-600 transition text-center">
+                    Cancelar
+                </a>
+            </div>
+        </form>
+    </section>
+
+</div>
+{% endblock %}

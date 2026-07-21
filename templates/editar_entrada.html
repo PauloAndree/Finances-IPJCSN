@@ -12,7 +12,7 @@
     </header>
 
     <section class="p-6 bg-green-50 rounded-xl shadow-inner border border-green-200">
-        <form method="POST" class="space-y-4">
+        <form method="POST" enctype="multipart/form-data" class="space-y-4">
 
             <div>
                 <label for="categoria_id" class="block text-sm font-medium text-gray-700 mb-1">Categoria da Entrada:</label>
@@ -64,6 +64,18 @@
                         <option value="{{ m.id_membro }}" {% if entrada.membro_id == m.id_membro %}selected{% endif %}>{{ m.nome }}</option>
                     {% endfor %}
                 </select>
+            </div>
+
+            <div>
+                <label for="comprovante" class="block text-sm font-medium text-gray-700 mb-1">Comprovante (Opcional — PNG, JPG, WEBP ou PDF):</label>
+                {% if entrada.comprovante_arquivo %}
+                <p class="text-xs text-gray-500 mb-1">
+                    Já existe um comprovante anexado.
+                    <a href="{{ url_for('ver_comprovante', tabela='entradas', id=entrada.id_entrada) }}" target="_blank" class="text-brand-600 hover:underline">Ver atual</a>
+                    — envie um novo arquivo abaixo para substituí-lo.
+                </p>
+                {% endif %}
+                <input type="file" id="comprovante" name="comprovante" accept=".png,.jpg,.jpeg,.webp,.pdf" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 shadow-sm bg-white">
             </div>
 
             <div class="flex space-x-4 mt-6">
