@@ -180,6 +180,8 @@ class Usuario(db.Model):
     cargo = db.Column(db.String(20))
     data_criacao = db.Column(db.DateTime, default=datetime.now)
     ativo = db.Column(db.Boolean, default=True)
+    membro_id = db.Column(db.Integer, db.ForeignKey('membros.id_membro'))
+    pendente_aprovacao = db.Column(db.Boolean, default=False)
 
 
 class Entrada(db.Model):
@@ -240,6 +242,25 @@ class Membro(db.Model):
     telefone = db.Column(db.String(20))
     ativo = db.Column(db.Boolean, default=True)
     data_criacao = db.Column(db.DateTime, default=datetime.now)
+    criado_via_cadastro = db.Column(db.Boolean, default=False)
+
+    # Ficha cadastral — dados pessoais
+    foto_arquivo = db.Column(db.String(255))
+    data_nascimento = db.Column(db.DateTime)
+    rg = db.Column(db.String(20))
+    estado_civil = db.Column(db.String(30))
+    qtd_filhos = db.Column(db.Integer, default=0)
+    trabalha_atualmente = db.Column(db.Boolean, default=False)
+
+    # Ficha cadastral — endereço
+    cep = db.Column(db.String(10))
+    endereco = db.Column(db.String(255))
+
+    # Ficha cadastral — dados ministeriais
+    data_batismo = db.Column(db.DateTime)
+    data_entrada_ministerio = db.Column(db.DateTime)
+    data_saida_ministerio = db.Column(db.DateTime)
+    funcao_ministerial = db.Column(db.String(50))
 
 
 class PlanoConta(db.Model):
@@ -436,6 +457,46 @@ def calcular_saldo_conta(conta):
         Transferencia.conta_origem_id == conta.id_conta
     ).scalar() or 0
     return (conta.saldo_inicial or 0) + total_entradas - total_saidas_pagas + total_recebido - total_enviado
+
+
+def saldo_suficiente_para_saida(conta_id, valor, conta_id_original=None, valor_original=None, estava_pago=False):
+    """Verifica se a conta tem saldo suficiente para um pagamento de `valor`.
+    O saldo de cada conta é isolado — dinheiro no banco nunca é considerado
+    automaticamente disponível no caixa, e vice-versa.
+    Ao editar uma saída já paga, informe conta_id_original/valor_original/estava_pago
+    com os valores de ANTES da edição: se ela já debitava essa mesma conta, o valor
+    que ela mesma já havia debitado é devolvido, para não contá-la duas vezes.
+    Retorna (ok: bool, saldo_disponivel: float, conta: Conta|None)."""
+    conta = Conta.query.get(conta_id) if conta_id else None
+    if not conta:
+        return False, 0.0, None
+    saldo = calcular_saldo_conta(conta)
+    if estava_pago and conta_id_original == conta_id:
+        saldo += valor_original or 0
+    return (saldo >= valor), saldo, conta
+
+
+def validar_reducao_entrada(conta_id_original, valor_original, conta_id_novo=None, valor_novo=0):
+    """Verifica se reduzir/remover uma entrada não deixaria a conta original com saldo
+    negativo — cobre tanto excluir uma entrada (conta_id_novo=None) quanto editá-la
+    (diminuir o valor ou trocar de conta). Esse dinheiro pode já ter sido usado em
+    pagamentos pagos dessa mesma conta.
+    Retorna (ok: bool, mensagem_erro: str|None)."""
+    if not conta_id_original:
+        return True, None
+    conta = Conta.query.get(conta_id_original)
+    if not conta:
+        return True, None
+    saldo_atual = calcular_saldo_conta(conta)
+    contribuicao_nesta_conta = valor_novo if conta_id_novo == conta_id_original else 0
+    saldo_resultante = saldo_atual - (valor_original or 0) + contribuicao_nesta_conta
+    if saldo_resultante < 0:
+        return False, (
+            f'Esta operação deixaria o saldo de "{conta.nome}" negativo (R$ {saldo_resultante:.2f}), '
+            'pois esse dinheiro já foi usado em pagamentos dessa conta.'
+        )
+    return True, None
+
 
 def calcular_dados_tendencia():
     """Calcula a evolução mensal de receitas e despesas nos últimos 6 meses."""
@@ -657,12 +718,15 @@ def get_comparativo_orcamento(ano, mes):
             codigo = conta['codigo']
             previsto = previsto_por_codigo.get((tipo_categoria, codigo), 0)
             realizado = realizado_por_codigo.get(codigo, 0)
+            percentual = (realizado / previsto * 100) if previsto else (100.0 if realizado else 0.0)
             linhas.append({
                 'codigo': codigo,
                 'nome': conta['nome'],
                 'previsto': previsto,
                 'realizado': realizado,
                 'diferenca': realizado - previsto,
+                'percentual': percentual,
+                'tem_orcamento': previsto > 0 or realizado > 0,
             })
         return linhas
 
@@ -838,13 +902,18 @@ def login():
         senha = request.form['senha']
         usuario = Usuario.query.filter_by(email=email).first()
         if usuario and not usuario.ativo:
-            registrar_login_log(email, False, 'usuário desativado')
-            flash('Este usuário foi desativado.', 'erro')
+            if usuario.pendente_aprovacao:
+                registrar_login_log(email, False, 'cadastro pendente de aprovação')
+                flash('Seu cadastro ainda está aguardando aprovação de um administrador.', 'aviso')
+            else:
+                registrar_login_log(email, False, 'usuário desativado')
+                flash('Este usuário foi desativado.', 'erro')
             return redirect(url_for('login'))
         if usuario and bcrypt.check_password_hash(usuario.senha, senha):
             session['usuario'] = usuario.nome
             session['cargo'] = usuario.cargo
             session['usuario_id'] = usuario.id_usuario
+            session['membro_id'] = usuario.membro_id
             registrar_login_log(email, True, 'sucesso')
             return redirect(url_for('dashboard'))
         else:
@@ -859,6 +928,65 @@ def logout():
     return redirect(url_for('login'))
 
 
+@app.route('/cadastro', methods=['GET', 'POST'])
+@limiter.limit("5 per minute", methods=["POST"])
+def cadastro():
+    if 'usuario' in session:
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        nome = request.form.get('nome', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        senha = request.form.get('senha', '')
+        confirmar_senha = request.form.get('confirmar_senha', '')
+        cpf = request.form.get('cpf', '').strip()
+        telefone = request.form.get('telefone', '').strip()
+
+        if not nome or not email or not senha:
+            flash('Preencha nome, e-mail e senha.', 'erro')
+            return redirect(url_for('cadastro'))
+        if len(senha) < 6:
+            flash('A senha deve ter pelo menos 6 caracteres.', 'erro')
+            return redirect(url_for('cadastro'))
+        if senha != confirmar_senha:
+            flash('As senhas não coincidem.', 'erro')
+            return redirect(url_for('cadastro'))
+        if Usuario.query.filter_by(email=email).first():
+            flash('Já existe uma conta com esse e-mail.', 'erro')
+            return redirect(url_for('cadastro'))
+
+        membro = None
+        if cpf:
+            membro = Membro.query.filter_by(cpf=cpf, ativo=True).first()
+        if not membro:
+            membro = Membro.query.filter(func.lower(Membro.email) == email, Membro.ativo == True).first()
+
+        if membro and Usuario.query.filter_by(membro_id=membro.id_membro).first():
+            flash('Já existe uma conta vinculada a este membro. Se você esqueceu a senha, contate um administrador.', 'erro')
+            return redirect(url_for('cadastro'))
+
+        if not membro:
+            membro = Membro(nome=nome, cpf=cpf or None, email=email, telefone=telefone or None, ativo=True, criado_via_cadastro=True)
+            db.session.add(membro)
+            db.session.flush()
+
+        novo_usuario = Usuario(
+            nome=nome,
+            email=email,
+            senha=bcrypt.generate_password_hash(senha).decode('utf-8'),
+            cargo='membro',
+            ativo=False,
+            pendente_aprovacao=True,
+            membro_id=membro.id_membro,
+        )
+        db.session.add(novo_usuario)
+        db.session.commit()
+        flash('Cadastro enviado! Aguarde a aprovação de um administrador para poder acessar o sistema.', 'sucesso')
+        return redirect(url_for('login'))
+
+    return render_template('cadastro.html')
+
+
 @app.errorhandler(429)
 def limite_excedido(e):
     flash('Muitas tentativas de login em pouco tempo. Aguarde um minuto e tente novamente.', 'erro')
@@ -867,6 +995,9 @@ def limite_excedido(e):
 @app.route('/dashboard')
 @login_required
 def dashboard():
+    if session.get('cargo') == 'membro':
+        return redirect(url_for('meu_portal'))
+
     summary = get_finance_summary()
     hoje = date.today()
 
@@ -907,6 +1038,8 @@ def dashboard():
 def api_dashboard_resumo():
     """Resumo leve do dashboard, consultado periodicamente pelo navegador para
     atualizar os números na tela sem precisar recarregar a página."""
+    if session.get('cargo') == 'membro':
+        abort(403)
     summary = get_finance_summary()
     dados = {
         "total_entradas": float(summary['total_entradas']),
@@ -970,9 +1103,19 @@ def entradas():
         flash('Entrada registrada com sucesso!', 'sucesso')
         return redirect(url_for('entradas'))
 
-    # 🔹 Carrega as entradas paginadas (mais recentes primeiro)
+    # 🔹 Carrega as entradas paginadas (mais recentes primeiro), filtradas por período
+    # (mês/ano atual por padrão) para não sobrecarregar a tela conforme o histórico cresce
+    hoje = date.today()
+    mostrar_todos = request.args.get('todos', '') == '1'
+    ano_filtro = request.args.get('ano', type=int) or hoje.year
+    mes_filtro = request.args.get('mes', type=int) or hoje.month
+
+    consulta = Entrada.query
+    if not mostrar_todos:
+        consulta = consulta.filter(func.strftime('%Y-%m', Entrada.data) == f'{ano_filtro:04d}-{mes_filtro:02d}')
+
     pagina = request.args.get('page', 1, type=int)
-    paginacao = Entrada.query.order_by(Entrada.data.desc()).paginate(page=pagina, per_page=ITENS_POR_PAGINA, error_out=False)
+    paginacao = consulta.order_by(Entrada.data.desc()).paginate(page=pagina, per_page=ITENS_POR_PAGINA, error_out=False)
     todas_entradas = paginacao.items
     contas_por_id = {c.id_conta: c.nome for c in Conta.query.all()}
     membros_por_id = {m.id_membro: m.nome for m in Membro.query.all()}
@@ -993,6 +1136,9 @@ def entradas():
         formas_pagamento=FORMAS_PAGAMENTO_ENTRADA,
         contas=Conta.query.filter_by(ativa=True).order_by(Conta.nome).all(),
         membros=Membro.query.filter_by(ativo=True).order_by(Membro.nome).all(),
+        ano_filtro=ano_filtro,
+        mes_filtro=mes_filtro,
+        mostrar_todos=mostrar_todos,
     )
 
 
@@ -1041,6 +1187,18 @@ def saidas():
 
         conta_id = request.form.get('conta_id', type=int)
 
+        if data_pagamento:
+            ok, saldo_disponivel, conta = saldo_suficiente_para_saida(conta_id, valor)
+            if not ok:
+                nome_conta = conta.nome if conta else 'selecionada'
+                flash(
+                    f'Saldo insuficiente em "{nome_conta}" (disponível: R$ {saldo_disponivel:.2f}) para pagar R$ {valor:.2f}. '
+                    'Registre uma transferência para essa conta antes de continuar, ou deixe a data de pagamento em branco '
+                    'para lançar como pendente em Contas a Pagar.',
+                    'erro'
+                )
+                return redirect(url_for('saidas'))
+
         nova_saida = Saida(tipo=tipo, forma_pagamento=forma_pagamento, valor=valor, descricao=descricao, data=data_saida, data_pagamento=data_pagamento, data_vencimento=data_vencimento, conta_id=conta_id)
         db.session.add(nova_saida)
         db.session.flush()
@@ -1054,8 +1212,19 @@ def saidas():
         db.session.commit()
         flash('Saída registrada com sucesso!', 'sucesso')
         return redirect(url_for('saidas'))
+    # Filtro por período (mês/ano atual por padrão), pelo mesmo motivo de entradas():
+    # sem isso, a listagem só cresce e fica pesada de rolar com o tempo de uso do sistema
+    hoje = date.today()
+    mostrar_todos = request.args.get('todos', '') == '1'
+    ano_filtro = request.args.get('ano', type=int) or hoje.year
+    mes_filtro = request.args.get('mes', type=int) or hoje.month
+
+    consulta = Saida.query
+    if not mostrar_todos:
+        consulta = consulta.filter(func.strftime('%Y-%m', Saida.data) == f'{ano_filtro:04d}-{mes_filtro:02d}')
+
     pagina = request.args.get('page', 1, type=int)
-    paginacao = Saida.query.order_by(Saida.data.desc()).paginate(page=pagina, per_page=ITENS_POR_PAGINA, error_out=False)
+    paginacao = consulta.order_by(Saida.data.desc()).paginate(page=pagina, per_page=ITENS_POR_PAGINA, error_out=False)
     todas_saidas = paginacao.items
     contas_por_id = {c.id_conta: c.nome for c in Conta.query.all()}
     for s in todas_saidas:
@@ -1069,6 +1238,9 @@ def saidas():
         contas_saida=contas_saida(),
         formas_pagamento=FORMAS_PAGAMENTO_SAIDA,
         contas=Conta.query.filter_by(ativa=True).order_by(Conta.nome).all(),
+        ano_filtro=ano_filtro,
+        mes_filtro=mes_filtro,
+        mostrar_todos=mostrar_todos,
     )
 
 # ==============================
@@ -1082,24 +1254,41 @@ def editar_entrada(id):
 
     if request.method == 'POST':
         antes = snapshot_registro(entrada)
-        entrada.tipo = request.form.get('categoria_id') or entrada.tipo
-        entrada.forma_pagamento = request.form.get('forma_pagamento', entrada.forma_pagamento)
-        
+        conta_id_original = entrada.conta_id
+        valor_original = entrada.valor
+
+        novo_tipo = request.form.get('categoria_id') or entrada.tipo
+        nova_forma_pagamento = request.form.get('forma_pagamento', entrada.forma_pagamento)
+
         try:
-            entrada.valor = float(request.form.get('valor', entrada.valor))
+            novo_valor = float(request.form.get('valor', entrada.valor))
         except (ValueError, TypeError):
             flash('Valor inválido.', 'erro')
             return redirect(url_for('editar_entrada', id=id))
-        
-        entrada.descricao = request.form.get('descricao', '')
-        entrada.conta_id = request.form.get('conta_id', type=int) or entrada.conta_id
-        entrada.membro_id = request.form.get('membro_id', type=int)
 
+        nova_descricao = request.form.get('descricao', '')
+        nova_conta_id = request.form.get('conta_id', type=int) or entrada.conta_id
+        novo_membro_id = request.form.get('membro_id', type=int)
+
+        nova_data = entrada.data
         if request.form.get('data'):
             try:
-                entrada.data = datetime.strptime(request.form['data'], '%Y-%m-%d')
+                nova_data = datetime.strptime(request.form['data'], '%Y-%m-%d')
             except ValueError:
                 flash('Formato de data inválido.', 'aviso')
+
+        ok, erro = validar_reducao_entrada(conta_id_original, valor_original, nova_conta_id, novo_valor)
+        if not ok:
+            flash(erro, 'erro')
+            return redirect(url_for('editar_entrada', id=id))
+
+        entrada.tipo = novo_tipo
+        entrada.forma_pagamento = nova_forma_pagamento
+        entrada.valor = novo_valor
+        entrada.descricao = nova_descricao
+        entrada.conta_id = nova_conta_id
+        entrada.membro_id = novo_membro_id
+        entrada.data = nova_data
 
         arquivo = request.files.get('comprovante')
         nome_arquivo = salvar_comprovante(arquivo, 'entradas', entrada.id_entrada)
@@ -1126,6 +1315,12 @@ def editar_entrada(id):
 @roles_required(*CARGOS_FINANCEIRO)
 def excluir_entrada(id):
     entrada = Entrada.query.get_or_404(id)
+
+    ok, erro = validar_reducao_entrada(entrada.conta_id, entrada.valor)
+    if not ok:
+        flash(erro, 'erro')
+        return redirect(url_for('entradas'))
+
     registrar_historico('entradas', entrada.id_entrada, 'excluir', antes=snapshot_registro(entrada))
     db.session.delete(entrada)
     db.session.commit()
@@ -1139,41 +1334,71 @@ def editar_saida(id):
     
     if request.method == 'POST':
         antes = snapshot_registro(saida)
-        saida.tipo = request.form.get('tipo', saida.tipo)
-        saida.forma_pagamento = request.form.get('forma_pagamento', saida.forma_pagamento)
-        
+        conta_id_original = saida.conta_id
+        valor_original = saida.valor
+        estava_pago = saida.data_pagamento is not None
+
+        novo_tipo = request.form.get('tipo', saida.tipo)
+        nova_forma_pagamento = request.form.get('forma_pagamento', saida.forma_pagamento)
+
         try:
-            saida.valor = float(request.form.get('valor', saida.valor))
+            novo_valor = float(request.form.get('valor', saida.valor))
         except (ValueError, TypeError):
             flash('Valor inválido.', 'erro')
             return redirect(url_for('editar_saida', id=id))
-        
-        saida.descricao = request.form.get('descricao', '')
-        
+
+        nova_descricao = request.form.get('descricao', '')
+
+        nova_data = saida.data
         if request.form.get('data'):
             try:
-                saida.data = datetime.strptime(request.form['data'], '%Y-%m-%d')
+                nova_data = datetime.strptime(request.form['data'], '%Y-%m-%d')
             except ValueError:
                 flash('Formato de data inválido.', 'aviso')
-        
+
         # Capturar datas de pagamento e vencimento
         if request.form.get('data_pagamento'):
             try:
-                saida.data_pagamento = datetime.strptime(request.form['data_pagamento'], '%Y-%m-%d')
+                nova_data_pagamento = datetime.strptime(request.form['data_pagamento'], '%Y-%m-%d')
             except ValueError:
                 flash('Formato de data de pagamento inválido.', 'aviso')
+                nova_data_pagamento = saida.data_pagamento
         else:
-            saida.data_pagamento = None
-        
+            nova_data_pagamento = None
+
         if request.form.get('data_vencimento'):
             try:
-                saida.data_vencimento = datetime.strptime(request.form['data_vencimento'], '%Y-%m-%d')
+                nova_data_vencimento = datetime.strptime(request.form['data_vencimento'], '%Y-%m-%d')
             except ValueError:
                 flash('Formato de data de vencimento inválido.', 'aviso')
+                nova_data_vencimento = saida.data_vencimento
         else:
-            saida.data_vencimento = None
+            nova_data_vencimento = None
 
-        saida.conta_id = request.form.get('conta_id', type=int) or saida.conta_id
+        nova_conta_id = request.form.get('conta_id', type=int) or saida.conta_id
+
+        if nova_data_pagamento:
+            ok, saldo_disponivel, conta = saldo_suficiente_para_saida(
+                nova_conta_id, novo_valor,
+                conta_id_original=conta_id_original, valor_original=valor_original, estava_pago=estava_pago,
+            )
+            if not ok:
+                nome_conta = conta.nome if conta else 'selecionada'
+                flash(
+                    f'Saldo insuficiente em "{nome_conta}" (disponível: R$ {saldo_disponivel:.2f}) para um pagamento de R$ {novo_valor:.2f}. '
+                    'Registre uma transferência para essa conta antes de continuar.',
+                    'erro'
+                )
+                return redirect(url_for('editar_saida', id=id))
+
+        saida.tipo = novo_tipo
+        saida.forma_pagamento = nova_forma_pagamento
+        saida.valor = novo_valor
+        saida.descricao = nova_descricao
+        saida.data = nova_data
+        saida.data_pagamento = nova_data_pagamento
+        saida.data_vencimento = nova_data_vencimento
+        saida.conta_id = nova_conta_id
 
         arquivo = request.files.get('comprovante')
         nome_arquivo = salvar_comprovante(arquivo, 'saidas', saida.id_saida)
@@ -1237,12 +1462,38 @@ def contas_a_pagar():
 @roles_required(*CARGOS_FINANCEIRO)
 def marcar_saida_paga(id):
     saida = Saida.query.get_or_404(id)
+
+    ok, saldo_disponivel, conta = saldo_suficiente_para_saida(saida.conta_id, saida.valor)
+    if not ok:
+        nome_conta = conta.nome if conta else 'vinculada a esta saída'
+        flash(
+            f'Saldo insuficiente em "{nome_conta}" (disponível: R$ {saldo_disponivel:.2f}) para pagar R$ {saida.valor:.2f}. '
+            'Registre uma transferência para essa conta antes de marcar como paga.',
+            'erro'
+        )
+        return redirect(request.referrer or url_for('contas_a_pagar'))
+
     antes = snapshot_registro(saida)
     saida.data_pagamento = datetime.now()
     registrar_historico('saidas', saida.id_saida, 'editar', antes=antes, depois=snapshot_registro(saida))
     db.session.commit()
     flash('Saída marcada como paga!', 'sucesso')
     return redirect(request.referrer or url_for('contas_a_pagar'))
+
+
+@app.route('/saidas/<int:id>/desfazer-pagamento', methods=['POST'])
+@roles_required(*CARGOS_FINANCEIRO)
+def desfazer_pagamento_saida(id):
+    saida = Saida.query.get_or_404(id)
+    if not saida.data_pagamento:
+        flash('Esta saída ainda não está marcada como paga.', 'erro')
+        return redirect(request.referrer or url_for('saidas'))
+    antes = snapshot_registro(saida)
+    saida.data_pagamento = None
+    registrar_historico('saidas', saida.id_saida, 'editar', antes=antes, depois=snapshot_registro(saida))
+    db.session.commit()
+    flash('Pagamento desfeito! A saída voltou para Contas a Pagar.', 'sucesso')
+    return redirect(request.referrer or url_for('saidas'))
 
 
 @app.route('/contas', methods=['GET', 'POST'])
@@ -1320,6 +1571,13 @@ def transferencias():
 
         if conta_origem_id == conta_destino_id:
             flash('A conta de origem e destino não podem ser a mesma.', 'erro')
+            return redirect(url_for('transferencias'))
+
+        conta_origem_check = Conta.query.get(conta_origem_id)
+        saldo_origem = calcular_saldo_conta(conta_origem_check) if conta_origem_check else 0
+        if not conta_origem_check or saldo_origem < valor:
+            nome_conta = conta_origem_check.nome if conta_origem_check else 'de origem'
+            flash(f'Saldo insuficiente em "{nome_conta}" (disponível: R$ {saldo_origem:.2f}) para transferir R$ {valor:.2f}.', 'erro')
             return redirect(url_for('transferencias'))
 
         nova_transferencia = Transferencia(
@@ -1405,8 +1663,21 @@ def excluir_plano_conta(id):
     return redirect(url_for('plano_contas'))
 
 
+ESTADO_CIVIL_OPCOES = ('Solteiro(a)', 'Casado(a)', 'Divorciado(a)', 'Viúvo(a)', 'União Estável')
+
+
+def parse_data_opcional(valor_str):
+    """Converte uma string 'YYYY-MM-DD' em datetime, ou None se vazia/inválida."""
+    if not valor_str:
+        return None
+    try:
+        return datetime.strptime(valor_str, '%Y-%m-%d')
+    except ValueError:
+        return None
+
+
 @app.route('/membros', methods=['GET', 'POST'])
-@roles_required(*CARGOS_FINANCEIRO)
+@roles_required(*CARGOS_DETALHE)
 def membros():
     if request.method == 'POST':
         nome = request.form.get('nome', '').strip()
@@ -1414,6 +1685,8 @@ def membros():
             flash('Nome do membro é obrigatório.', 'erro')
             return redirect(url_for('membros'))
 
+        # Cadastro rápido: só o essencial. A ficha completa (dados pessoais, endereço
+        # e ministeriais) é preenchida depois em Editar.
         novo_membro = Membro(
             nome=nome,
             cpf=request.form.get('cpf', '').strip(),
@@ -1422,7 +1695,7 @@ def membros():
         )
         db.session.add(novo_membro)
         db.session.commit()
-        flash('Membro cadastrado com sucesso!', 'sucesso')
+        flash('Membro cadastrado com sucesso! Complete a ficha em "Editar".', 'sucesso')
         return redirect(url_for('membros'))
 
     todos_membros = Membro.query.filter_by(ativo=True).order_by(Membro.nome).all()
@@ -1430,7 +1703,7 @@ def membros():
 
 
 @app.route('/editar-membro/<int:id>', methods=['GET', 'POST'])
-@roles_required(*CARGOS_FINANCEIRO)
+@roles_required(*CARGOS_DETALHE)
 def editar_membro(id):
     membro = Membro.query.get_or_404(id)
 
@@ -1439,15 +1712,40 @@ def editar_membro(id):
         membro.cpf = request.form.get('cpf', '').strip()
         membro.email = request.form.get('email', '').strip()
         membro.telefone = request.form.get('telefone', '').strip()
+
+        # Dados pessoais
+        membro.data_nascimento = parse_data_opcional(request.form.get('data_nascimento'))
+        membro.rg = request.form.get('rg', '').strip()
+        membro.estado_civil = request.form.get('estado_civil', '').strip()
+        membro.qtd_filhos = request.form.get('qtd_filhos', type=int) or 0
+        membro.trabalha_atualmente = request.form.get('trabalha_atualmente') == 'sim'
+
+        # Endereço
+        membro.cep = request.form.get('cep', '').strip()
+        membro.endereco = request.form.get('endereco', '').strip()
+
+        # Dados ministeriais
+        membro.data_batismo = parse_data_opcional(request.form.get('data_batismo'))
+        membro.data_entrada_ministerio = parse_data_opcional(request.form.get('data_entrada_ministerio'))
+        membro.data_saida_ministerio = parse_data_opcional(request.form.get('data_saida_ministerio'))
+        membro.funcao_ministerial = request.form.get('funcao_ministerial', '').strip()
+
+        arquivo = request.files.get('foto')
+        nome_arquivo = salvar_foto_membro(arquivo, membro.id_membro)
+        if arquivo and arquivo.filename and not nome_arquivo:
+            flash('Tipo de arquivo não permitido para foto. Use PNG, JPG ou WEBP.', 'aviso')
+        elif nome_arquivo:
+            membro.foto_arquivo = nome_arquivo
+
         db.session.commit()
         flash('Membro atualizado com sucesso!', 'sucesso')
         return redirect(url_for('membros'))
 
-    return render_template('editar_membro.html', membro=membro)
+    return render_template('editar_membro.html', membro=membro, estados_civis=ESTADO_CIVIL_OPCOES)
 
 
 @app.route('/excluir-membro/<int:id>', methods=['POST'])
-@roles_required(*CARGOS_FINANCEIRO)
+@roles_required(*CARGOS_DETALHE)
 def excluir_membro(id):
     membro = Membro.query.get_or_404(id)
     membro.ativo = False
@@ -1456,14 +1754,24 @@ def excluir_membro(id):
     return redirect(url_for('membros'))
 
 
-@app.route('/membros/<int:id>/recibo', methods=['GET'])
-@roles_required(*CARGOS_FINANCEIRO)
-def recibo_membro(id):
+@app.route('/foto-membro/<int:id>', methods=['GET'])
+@roles_required(*CARGOS_DETALHE)
+def ver_foto_membro(id):
     membro = Membro.query.get_or_404(id)
-    ano = request.args.get('ano', type=int) or date.today().year
+    if not membro.foto_arquivo:
+        abort(404)
+    pasta = os.path.join(app.instance_path, 'fotos_membros')
+    return send_from_directory(pasta, membro.foto_arquivo)
+
+
+def _dados_recibo_membro(membro_id, ano):
+    """Monta os dados do recibo de doação de um membro em um dado ano. Compartilhado
+    entre a rota de recibo usada pela equipe (por id) e o portal do próprio membro
+    (que só pode ver o seu próprio membro_id, nunca um id arbitrário)."""
+    membro = Membro.query.get_or_404(membro_id)
 
     entradas_membro = Entrada.query.filter(
-        Entrada.membro_id == id,
+        Entrada.membro_id == membro_id,
         func.strftime("%Y", Entrada.data) == str(ano)
     ).order_by(Entrada.data).all()
 
@@ -1472,8 +1780,7 @@ def recibo_membro(id):
 
     total_ano = sum(e.valor or 0 for e in entradas_membro)
 
-    return render_template(
-        'recibo_membro.html',
+    return dict(
         membro=membro,
         ano=ano,
         entradas=entradas_membro,
@@ -1484,6 +1791,41 @@ def recibo_membro(id):
         igreja_cidade_uf=IGREJA_CIDADE_UF,
         data_emissao=date.today(),
     )
+
+
+@app.route('/membros/<int:id>/recibo', methods=['GET'])
+@roles_required(*CARGOS_DETALHE)
+def recibo_membro(id):
+    ano = request.args.get('ano', type=int) or date.today().year
+    return render_template('recibo_membro.html', **_dados_recibo_membro(id, ano))
+
+
+@app.route('/meu-portal', methods=['GET'])
+@roles_required('membro')
+def meu_portal():
+    membro_id = session.get('membro_id')
+    if not membro_id:
+        flash('Sua conta não está vinculada a um registro de membro. Contate um administrador.', 'erro')
+        return redirect(url_for('logout'))
+
+    ano = request.args.get('ano', type=int) or date.today().year
+    dados = _dados_recibo_membro(membro_id, ano)
+
+    anos_disponiveis = sorted({
+        e.data.year for e in Entrada.query.filter_by(membro_id=membro_id).all()
+    }, reverse=True) or [date.today().year]
+
+    return render_template('meu_portal.html', anos_disponiveis=anos_disponiveis, **dados)
+
+
+@app.route('/meu-portal/recibo', methods=['GET'])
+@roles_required('membro')
+def meu_portal_recibo():
+    membro_id = session.get('membro_id')
+    if not membro_id:
+        abort(403)
+    ano = request.args.get('ano', type=int) or date.today().year
+    return render_template('recibo_membro.html', **_dados_recibo_membro(membro_id, ano))
 
 
 @app.route('/orcamentos', methods=['GET', 'POST'])
@@ -1549,7 +1891,7 @@ def usuarios():
         senha = request.form.get('senha', '')
         cargo = request.form.get('cargo', '')
 
-        if not nome or not email or not senha or cargo not in CARGOS_VALIDOS:
+        if not nome or not email or not senha or cargo not in CARGOS_STAFF:
             flash('Preencha nome, e-mail, senha e um cargo válido.', 'erro')
             return redirect(url_for('usuarios'))
 
@@ -1569,7 +1911,8 @@ def usuarios():
         flash('Usuário criado com sucesso!', 'sucesso')
         return redirect(url_for('usuarios'))
 
-    todos_usuarios = Usuario.query.order_by(Usuario.nome).all()
+    todos_usuarios = Usuario.query.filter_by(pendente_aprovacao=False).order_by(Usuario.nome).all()
+    pendentes = Usuario.query.filter_by(pendente_aprovacao=True).order_by(Usuario.data_criacao.desc()).all()
 
     pasta_backup = os.path.join(app.instance_path, 'backups')
     backups = sorted(glob.glob(os.path.join(pasta_backup, 'igreja_finance_*.db')), reverse=True)
@@ -1592,6 +1935,7 @@ def usuarios():
     return render_template(
         'usuarios.html',
         usuarios=todos_usuarios,
+        pendentes=pendentes,
         cargos=CARGOS_VALIDOS,
         total_backups=total_backups,
         ultimo_backup=ultimo_backup,
@@ -1613,6 +1957,12 @@ def editar_usuario(id):
             return redirect(url_for('editar_usuario', id=id))
 
         cargo_novo = request.form.get('cargo', usuario.cargo)
+        if cargo_novo not in CARGOS_VALIDOS:
+            flash('Cargo inválido.', 'erro')
+            return redirect(url_for('editar_usuario', id=id))
+        if cargo_novo == 'membro' and usuario.cargo != 'membro':
+            flash('O cargo "Membro" só pode ser atribuído pelo próprio cadastro em /cadastro, pois exige vínculo com um registro de Membro.', 'erro')
+            return redirect(url_for('editar_usuario', id=id))
         if usuario.id_usuario == session.get('usuario_id') and cargo_novo != 'administrador':
             flash('Você não pode remover seu próprio acesso de administrador.', 'erro')
             return redirect(url_for('editar_usuario', id=id))
@@ -1643,6 +1993,42 @@ def excluir_usuario(id):
     usuario.ativo = False
     db.session.commit()
     flash('Usuário desativado com sucesso!', 'sucesso')
+    return redirect(url_for('usuarios'))
+
+
+@app.route('/aprovar-usuario/<int:id>', methods=['POST'])
+@roles_required('administrador')
+def aprovar_usuario(id):
+    usuario = Usuario.query.get_or_404(id)
+    if not usuario.pendente_aprovacao:
+        flash('Este cadastro não está pendente de aprovação.', 'erro')
+        return redirect(url_for('usuarios'))
+    usuario.ativo = True
+    usuario.pendente_aprovacao = False
+    db.session.commit()
+    flash(f'Cadastro de {usuario.nome} aprovado com sucesso!', 'sucesso')
+    return redirect(url_for('usuarios'))
+
+
+@app.route('/rejeitar-usuario/<int:id>', methods=['POST'])
+@roles_required('administrador')
+def rejeitar_usuario(id):
+    usuario = Usuario.query.get_or_404(id)
+    if not usuario.pendente_aprovacao:
+        flash('Este cadastro não está pendente de aprovação.', 'erro')
+        return redirect(url_for('usuarios'))
+
+    # Se o cadastro criou um Membro novo (não vinculou a um já existente) e ele nunca
+    # recebeu nenhuma doação, remove junto — senão fica um registro "fantasma" na
+    # lista de Membros da equipe, sem login e sem relação real com a igreja.
+    if usuario.membro_id:
+        membro = Membro.query.get(usuario.membro_id)
+        if membro and membro.criado_via_cadastro and not Entrada.query.filter_by(membro_id=membro.id_membro).first():
+            db.session.delete(membro)
+
+    db.session.delete(usuario)
+    db.session.commit()
+    flash('Cadastro rejeitado e removido.', 'sucesso')
     return redirect(url_for('usuarios'))
 
 
@@ -1870,7 +2256,9 @@ def finance_summary_api():
     """
     if 'usuario' not in session:
         return jsonify({"error": "Não autenticado"}), 401
-    
+    if session.get('cargo') == 'membro':
+        return jsonify({"error": "Acesso não permitido"}), 403
+
     user_query = request.args.get('query', '')
     
     # Tenta extrair a data da consulta do usuário
@@ -1901,6 +2289,8 @@ def api_chat():
     inteiramente no servidor (a chave de API nunca é exposta ao navegador)."""
     if 'usuario' not in session:
         return jsonify({"error": "Não autenticado"}), 401
+    if session.get('cargo') == 'membro':
+        return jsonify({"error": "Acesso não permitido"}), 403
 
     data = request.get_json(silent=True) or {}
     user_query = (data.get('query') or '').strip()
@@ -1976,7 +2366,8 @@ def export_entradas_csv():
 # ==============================
 # CRIAR TABELAS E USUÁRIO INICIAL
 # ==============================
-CARGOS_VALIDOS = ('administrador', 'tesoureiro', 'secretario', 'pastor', 'consulta')
+CARGOS_VALIDOS = ('administrador', 'tesoureiro', 'secretario', 'pastor', 'consulta', 'membro')
+CARGOS_STAFF = tuple(c for c in CARGOS_VALIDOS if c != 'membro')  # cargo 'membro' só é criado via /cadastro (precisa de membro_id)
 MIGRACAO_CARGOS_LEGADO = {'admin': 'administrador'}
 
 def _add_column_if_missing(table, column, coltype):
@@ -2004,6 +2395,24 @@ def salvar_comprovante(arquivo, tabela, id_registro):
     pasta = os.path.join(app.instance_path, 'comprovantes')
     os.makedirs(pasta, exist_ok=True)
     nome_arquivo = f"{tabela}_{id_registro}_{secrets.token_hex(6)}{ext}"
+    arquivo.save(os.path.join(pasta, nome_arquivo))
+    return nome_arquivo
+
+
+FOTO_EXTENSOES_PERMITIDAS = {'.png', '.jpg', '.jpeg', '.webp'}
+
+
+def salvar_foto_membro(arquivo, membro_id):
+    """Salva a foto do membro enviada em instance/fotos_membros/ e retorna o nome
+    do arquivo salvo, ou None se nenhum arquivo válido foi enviado."""
+    if not arquivo or not arquivo.filename:
+        return None
+    ext = os.path.splitext(arquivo.filename)[1].lower()
+    if ext not in FOTO_EXTENSOES_PERMITIDAS:
+        return None
+    pasta = os.path.join(app.instance_path, 'fotos_membros')
+    os.makedirs(pasta, exist_ok=True)
+    nome_arquivo = f"membro_{membro_id}_{secrets.token_hex(6)}{ext}"
     arquivo.save(os.path.join(pasta, nome_arquivo))
     return nome_arquivo
 
@@ -2045,6 +2454,21 @@ with app.app_context():
     _add_column_if_missing('entradas', 'membro_id', 'INTEGER')
     _add_column_if_missing('saidas', 'conta_id', 'INTEGER')
     _add_column_if_missing('usuarios', 'ativo', 'BOOLEAN DEFAULT 1')
+    _add_column_if_missing('usuarios', 'membro_id', 'INTEGER')
+    _add_column_if_missing('usuarios', 'pendente_aprovacao', 'BOOLEAN DEFAULT 0')
+    _add_column_if_missing('membros', 'criado_via_cadastro', 'BOOLEAN DEFAULT 0')
+    _add_column_if_missing('membros', 'foto_arquivo', 'TEXT')
+    _add_column_if_missing('membros', 'data_nascimento', 'DATETIME')
+    _add_column_if_missing('membros', 'rg', 'TEXT')
+    _add_column_if_missing('membros', 'estado_civil', 'TEXT')
+    _add_column_if_missing('membros', 'qtd_filhos', 'INTEGER DEFAULT 0')
+    _add_column_if_missing('membros', 'trabalha_atualmente', 'BOOLEAN DEFAULT 0')
+    _add_column_if_missing('membros', 'cep', 'TEXT')
+    _add_column_if_missing('membros', 'endereco', 'TEXT')
+    _add_column_if_missing('membros', 'data_batismo', 'DATETIME')
+    _add_column_if_missing('membros', 'data_entrada_ministerio', 'DATETIME')
+    _add_column_if_missing('membros', 'data_saida_ministerio', 'DATETIME')
+    _add_column_if_missing('membros', 'funcao_ministerial', 'TEXT')
     _add_column_if_missing('entradas', 'comprovante_arquivo', 'TEXT')
     _add_column_if_missing('saidas', 'comprovante_arquivo', 'TEXT')
 

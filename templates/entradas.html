@@ -59,7 +59,7 @@
             </div>
 
             <div class="md:col-span-2">
-                <label for="membro_id" class="block text-sm font-medium text-gray-700 mb-1">Membro/Dizimista (Opcional):</label>
+                <label for="membro_id" class="block text-sm font-medium text-gray-700 mb-1">Membro (Opcional):</label>
                 <select id="membro_id" name="membro_id" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 shadow-sm">
                     <option value="">Nenhum (oferta geral)</option>
                     {% for m in membros %}
@@ -84,7 +84,25 @@
     {% endif %}
 
     <section>
-        <h3 class="text-2xl font-bold text-gray-700 mb-6 border-b pb-2">Entradas Registradas</h3>
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-6 border-b pb-2">
+            <h3 class="text-2xl font-bold text-gray-700">Entradas Registradas</h3>
+            <form method="GET" class="flex flex-wrap items-center gap-2">
+                <select name="mes" onchange="this.form.submit()" class="p-2 border border-gray-300 rounded-lg text-sm" {% if mostrar_todos %}disabled{% endif %}>
+                    {% for m in range(1, 13) %}
+                        <option value="{{ m }}" {% if m == mes_filtro %}selected{% endif %}>{{ "%02d"|format(m) }}</option>
+                    {% endfor %}
+                </select>
+                <select name="ano" onchange="this.form.submit()" class="p-2 border border-gray-300 rounded-lg text-sm" {% if mostrar_todos %}disabled{% endif %}>
+                    {% for a in range(ano_filtro + 1, ano_filtro - 4, -1) %}
+                        <option value="{{ a }}" {% if a == ano_filtro %}selected{% endif %}>{{ a }}</option>
+                    {% endfor %}
+                </select>
+                <label class="flex items-center gap-1 text-sm text-gray-600">
+                    <input type="checkbox" name="todos" value="1" onchange="this.form.submit()" {% if mostrar_todos %}checked{% endif %}>
+                    Ver todos os períodos
+                </label>
+            </form>
+        </div>
 
         <!-- Tabela (desktop) -->
         <div class="hidden md:block overflow-x-auto shadow-lg rounded-lg">
@@ -174,13 +192,13 @@
         {% if paginacao and paginacao.pages > 1 %}
         <div class="flex justify-between items-center mt-6">
             {% if paginacao.has_prev %}
-                <a href="{{ url_for('entradas', page=paginacao.prev_num) }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition">&larr; Anterior</a>
+                <a href="{{ url_for('entradas', page=paginacao.prev_num, mes=mes_filtro, ano=ano_filtro, todos=('1' if mostrar_todos else none)) }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition">&larr; Anterior</a>
             {% else %}
                 <span class="px-4 py-2 text-sm text-gray-300">&larr; Anterior</span>
             {% endif %}
             <span class="text-sm text-gray-500">Página {{ paginacao.page }} de {{ paginacao.pages }} ({{ paginacao.total }} no total)</span>
             {% if paginacao.has_next %}
-                <a href="{{ url_for('entradas', page=paginacao.next_num) }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition">Próxima &rarr;</a>
+                <a href="{{ url_for('entradas', page=paginacao.next_num, mes=mes_filtro, ano=ano_filtro, todos=('1' if mostrar_todos else none)) }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition">Próxima &rarr;</a>
             {% else %}
                 <span class="px-4 py-2 text-sm text-gray-300">Próxima &rarr;</span>
             {% endif %}

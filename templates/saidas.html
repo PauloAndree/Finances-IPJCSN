@@ -76,7 +76,25 @@
     {% endif %}
 
     <section>
-        <h3 class="text-2xl font-bold text-gray-700 mb-6 border-b pb-2">Saídas Registradas</h3>
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-6 border-b pb-2">
+            <h3 class="text-2xl font-bold text-gray-700">Saídas Registradas</h3>
+            <form method="GET" class="flex flex-wrap items-center gap-2">
+                <select name="mes" onchange="this.form.submit()" class="p-2 border border-gray-300 rounded-lg text-sm" {% if mostrar_todos %}disabled{% endif %}>
+                    {% for m in range(1, 13) %}
+                        <option value="{{ m }}" {% if m == mes_filtro %}selected{% endif %}>{{ "%02d"|format(m) }}</option>
+                    {% endfor %}
+                </select>
+                <select name="ano" onchange="this.form.submit()" class="p-2 border border-gray-300 rounded-lg text-sm" {% if mostrar_todos %}disabled{% endif %}>
+                    {% for a in range(ano_filtro + 1, ano_filtro - 4, -1) %}
+                        <option value="{{ a }}" {% if a == ano_filtro %}selected{% endif %}>{{ a }}</option>
+                    {% endfor %}
+                </select>
+                <label class="flex items-center gap-1 text-sm text-gray-600">
+                    <input type="checkbox" name="todos" value="1" onchange="this.form.submit()" {% if mostrar_todos %}checked{% endif %}>
+                    Ver todos os períodos
+                </label>
+            </form>
+        </div>
 
         <!-- Tabela (desktop) -->
         <div class="hidden md:block overflow-x-auto shadow-lg rounded-lg">
@@ -117,6 +135,11 @@
                         {% if pode_editar %}
                         <td class="px-6 py-4 whitespace-nowrap text-sm space-x-2 flex">
                             <a href="{{ url_for('editar_saida', id=s.id_saida) | default('#') }}" class="px-3 py-1 bg-blue-500 text-white text-xs font-medium rounded hover:bg-blue-600 transition">Editar</a>
+                            {% if s.data_pagamento %}
+                            <form method="POST" action="{{ url_for('desfazer_pagamento_saida', id=s.id_saida) }}" style="display:inline;" onsubmit="return confirm('Desfazer o pagamento desta saída? Ela voltará para Contas a Pagar.');">
+                                <button type="submit" class="px-3 py-1 bg-amber-500 text-white text-xs font-medium rounded hover:bg-amber-600 transition">Desfazer Pagamento</button>
+                            </form>
+                            {% endif %}
                             <form method="POST" action="{{ url_for('excluir_saida', id=s.id_saida) | default('#') }}" style="display:inline;" onsubmit="return confirm('Tem certeza que deseja excluir esta saída?');">
                                 <button type="submit" class="px-3 py-1 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition">Excluir</button>
                             </form>
@@ -158,6 +181,11 @@
                         <button type="submit" class="w-full px-3 py-1.5 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition">Excluir</button>
                     </form>
                 </div>
+                {% if s.data_pagamento %}
+                <form method="POST" action="{{ url_for('desfazer_pagamento_saida', id=s.id_saida) }}" class="mt-2" onsubmit="return confirm('Desfazer o pagamento desta saída? Ela voltará para Contas a Pagar.');">
+                    <button type="submit" class="w-full px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded hover:bg-amber-600 transition">Desfazer Pagamento</button>
+                </form>
+                {% endif %}
                 {% endif %}
             </div>
             {% else %}
@@ -168,13 +196,13 @@
         {% if paginacao and paginacao.pages > 1 %}
         <div class="flex justify-between items-center mt-6">
             {% if paginacao.has_prev %}
-                <a href="{{ url_for('saidas', page=paginacao.prev_num) }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition">&larr; Anterior</a>
+                <a href="{{ url_for('saidas', page=paginacao.prev_num, mes=mes_filtro, ano=ano_filtro, todos=('1' if mostrar_todos else none)) }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition">&larr; Anterior</a>
             {% else %}
                 <span class="px-4 py-2 text-sm text-gray-300">&larr; Anterior</span>
             {% endif %}
             <span class="text-sm text-gray-500">Página {{ paginacao.page }} de {{ paginacao.pages }} ({{ paginacao.total }} no total)</span>
             {% if paginacao.has_next %}
-                <a href="{{ url_for('saidas', page=paginacao.next_num) }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition">Próxima &rarr;</a>
+                <a href="{{ url_for('saidas', page=paginacao.next_num, mes=mes_filtro, ano=ano_filtro, todos=('1' if mostrar_todos else none)) }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition">Próxima &rarr;</a>
             {% else %}
                 <span class="px-4 py-2 text-sm text-gray-300">Próxima &rarr;</span>
             {% endif %}

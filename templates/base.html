@@ -86,24 +86,54 @@
                 </a>
 
                 <div class="hidden md:flex items-center gap-1">
+                    {% if cargo_atual == 'membro' %}
+                    <a href="{{ url_for('meu_portal') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Meus Registros</a>
+                    {% else %}
                     <a href="{{ url_for('dashboard') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Dashboard</a>
-                    {% if cargo_atual != 'consulta' %}
+                    {% endif %}
+                    {% if cargo_atual not in ['consulta', 'membro'] %}
                     <a href="{{ url_for('entradas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Entradas</a>
                     <a href="{{ url_for('saidas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Saídas</a>
-                    <a href="{{ url_for('relatorio') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Relatório</a>
-                    <a href="{{ url_for('relatorio_anual') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Relatório Anual</a>
+
+                    <div class="relative" data-dropdown>
+                        <button type="button" class="dropdown-toggle px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition flex items-center gap-1">
+                            Relatórios
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </button>
+                        <div class="dropdown-menu hidden absolute left-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                            <a href="{{ url_for('relatorio') }}" class="block px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-700">Relatório Mensal</a>
+                            <a href="{{ url_for('relatorio_anual') }}" class="block px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-700">Relatório Anual</a>
+                        </div>
+                    </div>
+
                     <a href="{{ url_for('contas_a_pagar') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Contas a Pagar</a>
                     {% if pode_editar %}
-                    <a href="{{ url_for('contas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Contas Bancárias</a>
-                    <a href="{{ url_for('membros') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Membros</a>
-                    <a href="{{ url_for('orcamentos') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Orçamento</a>
-                    <a href="{{ url_for('plano_contas') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Plano de Contas</a>
+                    <div class="relative" data-dropdown>
+                        <button type="button" class="dropdown-toggle px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition flex items-center gap-1">
+                            Gestão
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </button>
+                        <div class="dropdown-menu hidden absolute left-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                            <a href="{{ url_for('contas') }}" class="block px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-700">Contas Bancárias</a>
+                            <a href="{{ url_for('membros') }}" class="block px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-700">Membros</a>
+                            <a href="{{ url_for('orcamentos') }}" class="block px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-700">Orçamento</a>
+                            <a href="{{ url_for('plano_contas') }}" class="block px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-700">Plano de Contas</a>
+                        </div>
+                    </div>
                     {% endif %}
                     {% endif %}
                     {% if cargo_atual == 'administrador' %}
-                    <a href="{{ url_for('historico') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Histórico</a>
-                    <a href="{{ url_for('log_acessos') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Log de Acessos</a>
-                    <a href="{{ url_for('usuarios') }}" class="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">Usuários</a>
+                    <div class="relative" data-dropdown>
+                        <button type="button" class="dropdown-toggle px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition flex items-center gap-1">
+                            Administração
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </button>
+                        <div class="dropdown-menu hidden absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                            <a href="{{ url_for('historico') }}" class="block px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-700">Histórico</a>
+                            <a href="{{ url_for('log_acessos') }}" class="block px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-700">Log de Acessos</a>
+                            <a href="{{ url_for('usuarios') }}" class="block px-4 py-2 text-sm text-gray-600 hover:bg-brand-50 hover:text-brand-700">Usuários</a>
+                        </div>
+                    </div>
                     {% endif %}
                     <button id="theme-toggle" type="button" class="ml-1 p-2 rounded-lg text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition" aria-label="Alternar tema claro/escuro">
                         <svg id="theme-icon-sol" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -136,14 +166,19 @@
 
         <div id="mobile-menu" class="hidden md:hidden border-t bg-white">
             <div class="px-4 py-3 space-y-1">
+                {% if cargo_atual == 'membro' %}
+                <a href="{{ url_for('meu_portal') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Meus Registros</a>
+                {% else %}
                 <a href="{{ url_for('dashboard') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Dashboard</a>
-                {% if cargo_atual != 'consulta' %}
+                {% endif %}
+                {% if cargo_atual not in ['consulta', 'membro'] %}
                 <a href="{{ url_for('entradas') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Entradas</a>
                 <a href="{{ url_for('saidas') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Saídas</a>
-                <a href="{{ url_for('relatorio') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Relatório</a>
+                <a href="{{ url_for('relatorio') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Relatório Mensal</a>
                 <a href="{{ url_for('relatorio_anual') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Relatório Anual</a>
                 <a href="{{ url_for('contas_a_pagar') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Contas a Pagar</a>
                 {% if pode_editar %}
+                <p class="px-3 pt-3 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Gestão</p>
                 <a href="{{ url_for('contas') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Contas Bancárias</a>
                 <a href="{{ url_for('membros') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Membros</a>
                 <a href="{{ url_for('orcamentos') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Orçamento</a>
@@ -151,6 +186,7 @@
                 {% endif %}
                 {% endif %}
                 {% if cargo_atual == 'administrador' %}
+                <p class="px-3 pt-3 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Administração</p>
                 <a href="{{ url_for('historico') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Histórico</a>
                 <a href="{{ url_for('log_acessos') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Log de Acessos</a>
                 <a href="{{ url_for('usuarios') }}" class="block px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700">Usuários</a>
@@ -166,6 +202,22 @@
             if (btn && menu) {
                 btn.addEventListener('click', () => menu.classList.toggle('hidden'));
             }
+
+            // Menus suspensos da barra de navegação (Relatórios, Gestão, Administração)
+            document.querySelectorAll('[data-dropdown]').forEach(function (dropdown) {
+                const toggle = dropdown.querySelector('.dropdown-toggle');
+                const dropdownMenu = dropdown.querySelector('.dropdown-menu');
+                toggle.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    document.querySelectorAll('.dropdown-menu').forEach(function (m) {
+                        if (m !== dropdownMenu) m.classList.add('hidden');
+                    });
+                    dropdownMenu.classList.toggle('hidden');
+                });
+            });
+            document.addEventListener('click', function () {
+                document.querySelectorAll('.dropdown-menu').forEach(function (m) { m.classList.add('hidden'); });
+            });
 
             // Tema claro/escuro
             function atualizarIcones() {

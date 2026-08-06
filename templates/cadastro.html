@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Cadastro de Membro{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-sm bg-white p-8 md:p-10 rounded-xl shadow-2xl border-t-4 border-green-600">
+
+        <h2 class="text-2xl md:text-3xl font-extrabold text-green-600 text-center mb-2">
+            <span class="flex flex-col items-center justify-center gap-2">
+                <img src="{{ url_for('static', filename='igreja.png') }}" alt="Logo IPJCSN" class="w-16 h-16 object-contain">
+                <span>Cadastro de Membro</span>
+            </span>
+        </h2>
+        <p class="text-center text-sm text-gray-500 mb-6">
+            Crie sua conta para acompanhar o histórico das suas doações e emitir seu recibo.
+        </p>
+
+        <form method="POST" action="{{ url_for('cadastro') }}" class="space-y-4">
+            <input
+                type="text"
+                name="nome"
+                placeholder="Nome completo"
+                required
+                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 shadow-sm transition duration-150"
+            >
+
+            <input
+                type="email"
+                name="email"
+                placeholder="E-mail"
+                required
+                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 shadow-sm transition duration-150"
+            >
+
+            <input
+                type="text"
+                name="cpf"
+                placeholder="CPF (opcional)"
+                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 shadow-sm transition duration-150"
+            >
+
+            <input
+                type="text"
+                name="telefone"
+                placeholder="Telefone (opcional)"
+                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 shadow-sm transition duration-150"
+            >
+
+            <input
+                type="password"
+                name="senha"
+                placeholder="Senha (mínimo 6 caracteres)"
+                required
+                minlength="6"
+                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 shadow-sm transition duration-150"
+            >
+
+            <input
+                type="password"
+                name="confirmar_senha"
+                placeholder="Confirmar senha"
+                required
+                minlength="6"
+                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 shadow-sm transition duration-150"
+            >
+
+            <button
+                type="submit"
+                class="w-full py-3 bg-green-600 text-white font-bold rounded-lg shadow-lg hover:bg-green-700 transition duration-300 transform hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50"
+            >
+                Cadastrar
+            </button>
+        </form>
+
+        <p class="text-center text-sm text-gray-500 mt-5">
+            Seu acesso precisa ser aprovado por um administrador antes de você conseguir entrar.
+        </p>
+        <p class="text-center text-sm text-gray-500 mt-2">
+            Já tem conta? <a href="{{ url_for('login') }}" class="text-green-600 font-semibold hover:underline">Entrar</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

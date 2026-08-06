@@ -5,7 +5,7 @@
 <div class="max-w-4xl mx-auto p-4 md:p-8">
 
     <header class="mb-8">
-        <h1 class="text-3xl font-extrabold text-brand-700">Membros / Dizimistas</h1>
+        <h1 class="text-3xl font-extrabold text-brand-700">Membros</h1>
     </header>
 
     <section class="mb-10 p-6 bg-brand-50 rounded-xl shadow-inner border border-brand-100">
@@ -40,8 +40,20 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             {% for m in membros %}
             <div class="bg-white rounded-lg shadow p-4 border-l-4 border-brand-500">
-                <p class="font-semibold text-gray-800">{{ m.nome }}</p>
-                <p class="text-xs text-gray-500 mt-0.5">{{ m.email or '-' }} &middot; {{ m.telefone or '-' }}</p>
+                <div class="flex items-center gap-3">
+                    {% if m.foto_arquivo %}
+                    <img src="{{ url_for('ver_foto_membro', id=m.id_membro) }}" alt="Foto de {{ m.nome }}" class="w-10 h-10 rounded-full object-cover border border-brand-200 shrink-0">
+                    {% else %}
+                    <div class="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-400 font-bold shrink-0">
+                        {{ m.nome[0] | upper }}
+                    </div>
+                    {% endif %}
+                    <div>
+                        <p class="font-semibold text-gray-800">{{ m.nome }}</p>
+                        <p class="text-xs text-gray-500 mt-0.5">{{ m.email or '-' }} &middot; {{ m.telefone or '-' }}</p>
+                        {% if m.funcao_ministerial %}<p class="text-xs text-brand-700 font-medium mt-0.5">{{ m.funcao_ministerial }}</p>{% endif %}
+                    </div>
+                </div>
                 <div class="flex gap-2 mt-3">
                     <a href="{{ url_for('recibo_membro', id=m.id_membro) }}" class="flex-1 text-center px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded hover:bg-green-700 transition">Recibo</a>
                     <a href="{{ url_for('editar_membro', id=m.id_membro) }}" class="flex-1 text-center px-3 py-1.5 bg-blue-500 text-white text-xs font-medium rounded hover:bg-blue-600 transition">Editar</a>
