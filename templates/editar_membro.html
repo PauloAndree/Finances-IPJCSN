@@ -49,16 +49,24 @@
                 </div>
                 <div>
                     <label for="estado_civil" class="block text-sm font-medium text-gray-700 mb-1">Estado Civil:</label>
-                    <select id="estado_civil" name="estado_civil" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 shadow-sm">
+                    <select id="estado_civil" name="estado_civil" onchange="atualizarCampoConjuge()" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 shadow-sm">
                         <option value="">Não informado</option>
                         {% for opcao in estados_civis %}
                         <option value="{{ opcao }}" {% if membro.estado_civil == opcao %}selected{% endif %}>{{ opcao }}</option>
                         {% endfor %}
                     </select>
                 </div>
+                <div id="campo-conjuge" class="hidden">
+                    <label for="nome_conjuge" class="block text-sm font-medium text-gray-700 mb-1">Nome do Cônjuge:</label>
+                    <input type="text" id="nome_conjuge" name="nome_conjuge" value="{{ membro.nome_conjuge or '' }}" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 shadow-sm">
+                </div>
                 <div>
                     <label for="qtd_filhos" class="block text-sm font-medium text-gray-700 mb-1">Quantidade de Filhos:</label>
-                    <input type="number" id="qtd_filhos" name="qtd_filhos" min="0" value="{{ membro.qtd_filhos or 0 }}" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 shadow-sm">
+                    <input type="number" id="qtd_filhos" name="qtd_filhos" min="0" value="{{ membro.qtd_filhos or 0 }}" onchange="atualizarCampoFilhos()" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 shadow-sm">
+                </div>
+                <div id="campo-nomes-filhos" class="md:col-span-2 hidden">
+                    <label for="nomes_filhos" class="block text-sm font-medium text-gray-700 mb-1">Nomes dos Filhos:</label>
+                    <input type="text" id="nomes_filhos" name="nomes_filhos" value="{{ membro.nomes_filhos or '' }}" placeholder="Separe os nomes por vírgula" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 shadow-sm">
                 </div>
                 <div>
                     <label for="trabalha_atualmente" class="block text-sm font-medium text-gray-700 mb-1">Trabalha Atualmente?</label>
@@ -125,4 +133,22 @@
     </form>
 
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    function atualizarCampoConjuge() {
+        const estadoCivil = document.getElementById('estado_civil').value;
+        const mostrar = estadoCivil === 'Casado(a)' || estadoCivil === 'União Estável';
+        document.getElementById('campo-conjuge').classList.toggle('hidden', !mostrar);
+    }
+    function atualizarCampoFilhos() {
+        const qtd = parseInt(document.getElementById('qtd_filhos').value, 10) || 0;
+        document.getElementById('campo-nomes-filhos').classList.toggle('hidden', qtd <= 0);
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+        atualizarCampoConjuge();
+        atualizarCampoFilhos();
+    });
+</script>
 {% endblock %}

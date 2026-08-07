@@ -249,7 +249,9 @@ class Membro(db.Model):
     data_nascimento = db.Column(db.DateTime)
     rg = db.Column(db.String(20))
     estado_civil = db.Column(db.String(30))
+    nome_conjuge = db.Column(db.String(100))
     qtd_filhos = db.Column(db.Integer, default=0)
+    nomes_filhos = db.Column(db.Text)
     trabalha_atualmente = db.Column(db.Boolean, default=False)
 
     # Ficha cadastral — endereço
@@ -1717,7 +1719,9 @@ def editar_membro(id):
         membro.data_nascimento = parse_data_opcional(request.form.get('data_nascimento'))
         membro.rg = request.form.get('rg', '').strip()
         membro.estado_civil = request.form.get('estado_civil', '').strip()
+        membro.nome_conjuge = request.form.get('nome_conjuge', '').strip()
         membro.qtd_filhos = request.form.get('qtd_filhos', type=int) or 0
+        membro.nomes_filhos = request.form.get('nomes_filhos', '').strip()
         membro.trabalha_atualmente = request.form.get('trabalha_atualmente') == 'sim'
 
         # Endereço
@@ -1755,8 +1759,13 @@ def excluir_membro(id):
 
 
 @app.route('/foto-membro/<int:id>', methods=['GET'])
-@roles_required(*CARGOS_DETALHE)
+@login_required
 def ver_foto_membro(id):
+    cargo_atual = session.get('cargo')
+    e_o_proprio_membro = cargo_atual == 'membro' and session.get('membro_id') == id
+    if cargo_atual not in CARGOS_DETALHE and not e_o_proprio_membro:
+        abort(403)
+
     membro = Membro.query.get_or_404(id)
     if not membro.foto_arquivo:
         abort(404)
@@ -2461,7 +2470,9 @@ with app.app_context():
     _add_column_if_missing('membros', 'data_nascimento', 'DATETIME')
     _add_column_if_missing('membros', 'rg', 'TEXT')
     _add_column_if_missing('membros', 'estado_civil', 'TEXT')
+    _add_column_if_missing('membros', 'nome_conjuge', 'TEXT')
     _add_column_if_missing('membros', 'qtd_filhos', 'INTEGER DEFAULT 0')
+    _add_column_if_missing('membros', 'nomes_filhos', 'TEXT')
     _add_column_if_missing('membros', 'trabalha_atualmente', 'BOOLEAN DEFAULT 0')
     _add_column_if_missing('membros', 'cep', 'TEXT')
     _add_column_if_missing('membros', 'endereco', 'TEXT')

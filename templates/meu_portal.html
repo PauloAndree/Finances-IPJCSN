@@ -23,6 +23,88 @@
     </header>
 
     <section class="bg-white rounded-xl shadow-xl p-6 mb-6">
+        <h3 class="text-lg font-bold text-gray-700 mb-4 border-b pb-2">Minha Carteirinha</h3>
+        <div class="flex items-center gap-4 mb-5">
+            {% if membro.foto_arquivo %}
+            <img src="{{ url_for('ver_foto_membro', id=membro.id_membro) }}" alt="Foto de {{ membro.nome }}" class="w-20 h-20 rounded-full object-cover border border-brand-200 shrink-0">
+            {% else %}
+            <div class="w-20 h-20 rounded-full bg-brand-100 flex items-center justify-center text-brand-400 text-2xl font-bold shrink-0">
+                {{ membro.nome[0] | upper }}
+            </div>
+            {% endif %}
+            <div>
+                <p class="text-xl font-bold text-gray-800">{{ membro.nome }}</p>
+                {% if membro.funcao_ministerial %}<p class="text-sm text-brand-700 font-medium">{{ membro.funcao_ministerial }}</p>{% endif %}
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">CPF</p>
+                <p class="text-gray-700">{{ membro.cpf or '-' }}</p>
+            </div>
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">RG</p>
+                <p class="text-gray-700">{{ membro.rg or '-' }}</p>
+            </div>
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">Data de Nascimento</p>
+                <p class="text-gray-700">{{ membro.data_nascimento.strftime("%d/%m/%Y") if membro.data_nascimento else '-' }}</p>
+            </div>
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">Estado Civil</p>
+                <p class="text-gray-700">{{ membro.estado_civil or '-' }}</p>
+            </div>
+            {% if membro.nome_conjuge %}
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">Cônjuge</p>
+                <p class="text-gray-700">{{ membro.nome_conjuge }}</p>
+            </div>
+            {% endif %}
+            {% if membro.qtd_filhos %}
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">Filhos</p>
+                <p class="text-gray-700">{{ membro.qtd_filhos }}{% if membro.nomes_filhos %} — {{ membro.nomes_filhos }}{% endif %}</p>
+            </div>
+            {% endif %}
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">Trabalha Atualmente?</p>
+                <p class="text-gray-700">{{ 'Sim' if membro.trabalha_atualmente else 'Não' }}</p>
+            </div>
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">E-mail</p>
+                <p class="text-gray-700">{{ membro.email or '-' }}</p>
+            </div>
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">Telefone</p>
+                <p class="text-gray-700">{{ membro.telefone or '-' }}</p>
+            </div>
+            <div class="md:col-span-2">
+                <p class="text-gray-400 text-xs uppercase tracking-wider">Endereço</p>
+                <p class="text-gray-700">{{ membro.endereco or '-' }}{% if membro.cep %} — CEP {{ membro.cep }}{% endif %}</p>
+            </div>
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">Data de Batismo</p>
+                <p class="text-gray-700">{{ membro.data_batismo.strftime("%d/%m/%Y") if membro.data_batismo else '-' }}</p>
+            </div>
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">Entrada no Ministério</p>
+                <p class="text-gray-700">{{ membro.data_entrada_ministerio.strftime("%d/%m/%Y") if membro.data_entrada_ministerio else '-' }}</p>
+            </div>
+            {% if membro.data_saida_ministerio %}
+            <div>
+                <p class="text-gray-400 text-xs uppercase tracking-wider">Saída do Ministério</p>
+                <p class="text-gray-700">{{ membro.data_saida_ministerio.strftime("%d/%m/%Y") }}</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <p class="text-xs text-gray-400 mt-5 border-t pt-3">
+            Estes dados são mantidos pela secretaria da igreja. Para atualizar qualquer informação, procure a secretaria.
+        </p>
+    </section>
+
+    <section class="bg-white rounded-xl shadow-xl p-6 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3">
             <div>
                 <p class="text-sm text-gray-500">Total doado em {{ ano }}</p>
