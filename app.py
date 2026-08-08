@@ -20,6 +20,9 @@ import smtplib
 import threading
 import time
 from email.mime.text import MIMEText
+from dotenv import load_dotenv
+
+load_dotenv()  # carrega variáveis do arquivo .env (nunca versionado no Git), se existir
 
 # ==============================
 # CONFIGURAÇÃO DO FLASK
@@ -182,6 +185,8 @@ class Usuario(db.Model):
     ativo = db.Column(db.Boolean, default=True)
     membro_id = db.Column(db.Integer, db.ForeignKey('membros.id_membro'))
     pendente_aprovacao = db.Column(db.Boolean, default=False)
+    token_redefinicao_senha = db.Column(db.String(64))
+    token_redefinicao_expira = db.Column(db.DateTime)
 
 
 class Entrada(db.Model):
@@ -647,6 +652,26 @@ def montar_corpo_aviso_vencimento(atrasadas, proximas):
     """
 
 
+def montar_corpo_redefinicao_senha(link):
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+        <h2 style="color:#1f2937;">Redefinição de Senha — {IGREJA_NOME}</h2>
+        <p style="color:#374151;font-size:14px;">
+            Recebemos um pedido para redefinir a senha da sua conta no sistema financeiro.
+        </p>
+        <p style="margin:24px 0;">
+            <a href="{link}" style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;">
+                Redefinir minha senha
+            </a>
+        </p>
+        <p style="color:#6b7280;font-size:12px;">
+            Este link expira em 1 hora. Se você não pediu essa redefinição, ignore este e-mail —
+            sua senha continua a mesma.
+        </p>
+    </div>
+    """
+
+
 def _caminho_ultimo_aviso():
     return os.path.join(app.instance_path, 'ultimo_aviso_vencimento.txt')
 
@@ -987,6 +1012,67 @@ def cadastro():
         return redirect(url_for('login'))
 
     return render_template('cadastro.html')
+
+
+@app.route('/esqueci-senha', methods=['GET', 'POST'])
+@limiter.limit("5 per minute", methods=["POST"])
+def esqueci_senha():
+    if 'usuario' in session:
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        usuario = Usuario.query.filter_by(email=email).first()
+
+        # Sempre mostra a mesma mensagem, exista ou não a conta — evita que alguém
+        # descubra quais e-mails estão cadastrados testando este formulário.
+        if usuario and usuario.ativo:
+            usuario.token_redefinicao_senha = secrets.token_urlsafe(32)
+            usuario.token_redefinicao_expira = datetime.now() + timedelta(hours=1)
+            db.session.commit()
+
+            link = url_for('redefinir_senha', token=usuario.token_redefinicao_senha, _external=True)
+            enviar_email(
+                usuario.email,
+                f'Redefinição de senha — {IGREJA_NOME}',
+                montar_corpo_redefinicao_senha(link),
+            )
+
+        flash('Se esse e-mail estiver cadastrado, enviamos um link de redefinição de senha para ele.', 'sucesso')
+        return redirect(url_for('login'))
+
+    return render_template('esqueci_senha.html', smtp_configurado=smtp_configurado())
+
+
+@app.route('/redefinir-senha/<token>', methods=['GET', 'POST'])
+def redefinir_senha(token):
+    if 'usuario' in session:
+        return redirect(url_for('dashboard'))
+
+    usuario = Usuario.query.filter_by(token_redefinicao_senha=token).first()
+    if not usuario or not usuario.token_redefinicao_expira or usuario.token_redefinicao_expira < datetime.now():
+        flash('Este link de redefinição é inválido ou expirou. Solicite um novo.', 'erro')
+        return redirect(url_for('esqueci_senha'))
+
+    if request.method == 'POST':
+        senha = request.form.get('senha', '')
+        confirmar_senha = request.form.get('confirmar_senha', '')
+
+        if len(senha) < 6:
+            flash('A senha deve ter pelo menos 6 caracteres.', 'erro')
+            return redirect(url_for('redefinir_senha', token=token))
+        if senha != confirmar_senha:
+            flash('As senhas não coincidem.', 'erro')
+            return redirect(url_for('redefinir_senha', token=token))
+
+        usuario.senha = bcrypt.generate_password_hash(senha).decode('utf-8')
+        usuario.token_redefinicao_senha = None
+        usuario.token_redefinicao_expira = None
+        db.session.commit()
+        flash('Senha redefinida com sucesso! Faça login com sua nova senha.', 'sucesso')
+        return redirect(url_for('login'))
+
+    return render_template('redefinir_senha.html', token=token)
 
 
 @app.errorhandler(429)
@@ -2465,6 +2551,8 @@ with app.app_context():
     _add_column_if_missing('usuarios', 'ativo', 'BOOLEAN DEFAULT 1')
     _add_column_if_missing('usuarios', 'membro_id', 'INTEGER')
     _add_column_if_missing('usuarios', 'pendente_aprovacao', 'BOOLEAN DEFAULT 0')
+    _add_column_if_missing('usuarios', 'token_redefinicao_senha', 'TEXT')
+    _add_column_if_missing('usuarios', 'token_redefinicao_expira', 'DATETIME')
     _add_column_if_missing('membros', 'criado_via_cadastro', 'BOOLEAN DEFAULT 0')
     _add_column_if_missing('membros', 'foto_arquivo', 'TEXT')
     _add_column_if_missing('membros', 'data_nascimento', 'DATETIME')
